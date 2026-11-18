@@ -3,6 +3,8 @@ import { type History, type HistoryAction, initialHistory, step } from '../src/h
 import { decodeBlueprints, encodeBlueprints } from '../src/blueprintStore.ts';
 import { pointToView } from '../src/view.ts';
 import { canSaveBlueprint, wallAt } from '../src/world.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -92,7 +94,7 @@ ok('undo leaves the blueprint library alone');
 // a blueprint keeps its world facing: saved in view 0, placed from view 1, it lands as in view 0
 const saved = run(marked, { type: 'saveBlueprint' }, { type: 'cancel' });
 const id = saved.state.blueprints[0]!.id;
-const v1 = (x: number, y: number) => { const p = pointToView({ x, y }, 1); return pt(p.x, p.y); };
+const v1 = (x: number, y: number) => { const p = pointToView({ x, y }, 1, SQ); return pt(p.x, p.y); };
 const fromView0 = run(saved, { type: 'placeBlueprint', id }, { type: 'hover', ...pt(31.5, 30.5) }, { type: 'press', ...pt(31.5, 30.5) }, { type: 'release' });
 const fromView1 = run(saved, { type: 'rotateView', dir: 1 }, { type: 'placeBlueprint', id }, { type: 'hover', ...v1(31.5, 30.5) }, { type: 'press', ...v1(31.5, 30.5) }, { type: 'release' });
 const key = (h: History) => h.state.walls.map((w) => `${w.axis}${w.x},${w.y}:${w.opening}:${w.paint.before}/${w.paint.after}`).sort().join(' ');

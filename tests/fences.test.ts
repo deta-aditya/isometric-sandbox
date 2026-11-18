@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { interiorCells } from '../src/world.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const square = (x0: number, y0: number, x1: number, y1: number): HistoryAction[] => [
@@ -14,7 +16,7 @@ let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 // a fenced square is not a room: no interior, no floor
 let h = run(initialHistory, { type: 'select', id: 'picket-fence' }, ...square(2, 2, 4, 4));
 assert.equal(h.state.walls.length, 12);
-assert.equal(interiorCells(h.state.walls).size, 0);
+assert.equal(interiorCells(h.state.walls, SQ).size, 0);
 assert.equal(h.state.tiles.length, 0);
 ok('a fenced square builds like walls but forms no room and lays no floor');
 
@@ -27,7 +29,7 @@ ok('gates go on fences, doors do not');
 
 // a gate does not go on a wall
 h = run(h, { type: 'select', id: 'plaster' }, ...square(8, 2, 9, 3));
-assert.ok(interiorCells(h.state.walls).size > 0);
+assert.ok(interiorCells(h.state.walls, SQ).size > 0);
 h = run(h, { type: 'select', id: 'metal-gate' }, ...click(8.5, 2.02));
 assert.equal(wall(h, 'x', 8, 2)?.opening, null);
 ok('gates do not go on walls; walls still form rooms next to fences');

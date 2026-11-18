@@ -77,7 +77,7 @@ const MODES: readonly { mode: WallMode; label: string }[] = [
 // What the chip on the left of the bar says for the current tool and selection
 const toolChip = (state: State): Readonly<{ icon: string; title: string; detail: string }> => {
   const named = (g: Guide) => {
-    const w = guideFromView(g, state.view);
+    const w = guideFromView(g, state.view, state.size);
     return `${w.axis} ${w.at}`;
   };
   switch (state.tool) {

@@ -1,6 +1,6 @@
 // World logic: pure state and transitions. No Pixi, no DOM.
 import { type View, fromView, toView, turnAbout, turnView } from './view';
-import { CUT_WALL_H, EDGE_PICK, GRID_H, GRID_W, LEVELS, ROOF_LEVEL, TILE_H, WALL_H } from './config';
+import { CUT_WALL_H, DEFAULT_GRID, EDGE_PICK, LEVELS, ROOF_LEVEL, TILE_H, WALL_H } from './config';
 import {
   CATEGORIES,
   type CategoryId,
@@ -47,6 +47,8 @@ import {
   rectsOverlap,
   sameCell,
   sameEdge,
+  type Size,
+  sizeOf,
 } from './geometry';
 
 export type ObjectPlacement = Rect & Readonly<{ defId: string; rotation: Rotation }>;
@@ -102,19 +104,19 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
 const GUIDE_REACH = 0.3; // how close (in tiles) the pointer must be to grab a guide
 const MAP_MARGIN = 0.5; // off the map by more than this is off the map
 
-const offMap = (p: Point): boolean => p.x < -MAP_MARGIN || p.y < -MAP_MARGIN || p.x > GRID_W + MAP_MARGIN || p.y > GRID_H + MAP_MARGIN;
+const offMap = (size: Size, p: Point): boolean => p.x < -MAP_MARGIN || p.y < -MAP_MARGIN || p.x > size.w + MAP_MARGIN || p.y > size.h + MAP_MARGIN;
 
 // What the guide tool points at: a guide (with its index) or the nearest grid line (index null)
 export const guideUnder = (s: State, p: Point | null): Readonly<{ guide: Guide; index: number | null }> | null => {
-  if (!p || offMap(p)) return null;
+  if (!p || offMap(s.size, p)) return null;
   const off = (g: Guide) => Math.abs((g.axis === 'x' ? p.x : p.y) - g.at);
   const near = s.guides.map((g, index) => ({ guide: g, index, off: off(g) })).filter((h) => h.off <= GUIDE_REACH);
   if (near.length > 0) {
     const { guide, index } = near.reduce((a, b) => (b.off < a.off ? b : a));
     return { guide, index };
   }
-  const x: Guide = { axis: 'x', at: clamp(Math.round(p.x), 0, GRID_W) };
-  const y: Guide = { axis: 'y', at: clamp(Math.round(p.y), 0, GRID_H) };
+  const x: Guide = { axis: 'x', at: clamp(Math.round(p.x), 0, s.size.w) };
+  const y: Guide = { axis: 'y', at: clamp(Math.round(p.y), 0, s.size.h) };
   return { guide: off(x) <= off(y) ? x : y, index: null };
 };
 
@@ -122,8 +124,8 @@ export const guideDragTarget = (s: State): Guide | 'remove' | null => {
   const d = s.drag;
   if (d?.mode !== 'guide' || !s.point) return null;
   const along = d.axis === 'x' ? s.point.x : s.point.y;
-  if (offMap(s.point)) return 'remove'; // let go off the map
-  const end = d.axis === 'x' ? GRID_W : GRID_H;
+  if (offMap(s.size, s.point)) return 'remove'; // let go off the map
+  const end = d.axis === 'x' ? s.size.w : s.size.h;
   return { axis: d.axis, at: clamp(Math.round(along), 0, end) };
 };
 
@@ -167,6 +169,7 @@ export type WallMode = 'line' | 'square';
 export type WallView = 'up' | 'cutaway' | 'down';
 
 export type State = Readonly<{
+  size: Size; // the map's width and height in tiles (part of the world; in a view it is the view's frame)
   objects: readonly ObjectEntity[];
   tiles: readonly Tile[];
   culverts: readonly Edge[]; // culverts on canal banks
@@ -248,6 +251,7 @@ const firstGroupOf = (category: CategoryId): GroupId => groupsOf(category)[0]?.i
 const firstItemIn = (group: GroupId): string => itemsIn(group)[0]?.id ?? '';
 
 export const initialState: State = {
+  size: sizeOf(DEFAULT_GRID, DEFAULT_GRID),
   objects: [],
   culverts: [],
   tiles: [],
@@ -282,14 +286,17 @@ export const initialState: State = {
 // Rooms are not stored: a cell is "inside" when walls cut it off from the outside of the map.
 // Flood fill from beyond the map edge; every in-bounds cell it cannot reach is enclosed.
 // Openings do not count as gaps, so a room with a door is still a room.
-const interiorCache = new WeakMap<readonly WallSegment[], ReadonlySet<string>>();
+// Cached per wall list and map size (sizes are one object each, see sizeOf)
+const interiorCache = new WeakMap<readonly WallSegment[], WeakMap<Size, ReadonlySet<string>>>();
 
-export const interiorCells = (walls: readonly WallSegment[]): ReadonlySet<string> => {
-  const cached = interiorCache.get(walls);
+export const interiorCells = (walls: readonly WallSegment[], size: Size): ReadonlySet<string> => {
+  const bySize = interiorCache.get(walls) ?? new WeakMap<Size, ReadonlySet<string>>();
+  interiorCache.set(walls, bySize);
+  const cached = bySize.get(size);
   if (cached) return cached;
 
   const blocked = new Set(walls.filter((w) => !isFence(w.styleId)).map(edgeKey)); // fences never form rooms
-  const inPadded = (c: Cell) => c.x >= -1 && c.y >= -1 && c.x <= GRID_W && c.y <= GRID_H;
+  const inPadded = (c: Cell) => c.x >= -1 && c.y >= -1 && c.x <= size.w && c.y <= size.h;
   const reached = new Set<string>([cellKey({ x: -1, y: -1 })]);
   const queue: Cell[] = [{ x: -1, y: -1 }];
   while (queue.length > 0) {
@@ -310,26 +317,28 @@ export const interiorCells = (walls: readonly WallSegment[]): ReadonlySet<string
   }
 
   const interior = new Set(
-    cellsOf({ x: 0, y: 0, w: GRID_W, h: GRID_H })
+    cellsOf({ x: 0, y: 0, w: size.w, h: size.h })
       .map(cellKey)
       .filter((k) => !reached.has(k)),
   );
-  interiorCache.set(walls, interior);
+  bySize.set(size, interior);
   return interior;
 };
 
-export const isInterior = (s: State, c: Cell): boolean => interiorCells(s.walls).has(cellKey(c));
+export const isInterior = (s: State, c: Cell): boolean => interiorCells(s.walls, s.size).has(cellKey(c));
 
 // Covered cells: every room with at least one pole wall on its edge has a canopy over it, shown on
 // the 1st floor too (a covered walkway is open at the sides, so it reads from outside). Maps each
 // covered cell to its room's index, so the room under the pointer can fade as a whole.
-const canopyCache = new WeakMap<readonly WallSegment[], ReadonlyMap<string, number>>();
-export const canopyCells = (walls: readonly WallSegment[]): ReadonlyMap<string, number> => {
-  const cached = canopyCache.get(walls);
+const canopyCache = new WeakMap<readonly WallSegment[], WeakMap<Size, ReadonlyMap<string, number>>>();
+export const canopyCells = (walls: readonly WallSegment[], size: Size): ReadonlyMap<string, number> => {
+  const bySize = canopyCache.get(walls) ?? new WeakMap<Size, ReadonlyMap<string, number>>();
+  canopyCache.set(walls, bySize);
+  const cached = bySize.get(size);
   if (cached) return cached;
   const out = new Map<string, number>();
   if (walls.some((w) => isPole(w.styleId))) {
-    const inside = interiorCells(walls);
+    const inside = interiorCells(walls, size);
     const byEdge = new Map(walls.filter((w) => !isFence(w.styleId)).map((w) => [edgeKey(w), w]));
     const seen = new Set<string>();
     let room = 0;
@@ -364,19 +373,19 @@ export const canopyCells = (walls: readonly WallSegment[]): ReadonlyMap<string, 
       room++;
     }
   }
-  canopyCache.set(walls, out);
+  bySize.set(size, out);
   return out;
 };
 
 // ===== Queries =====
 export const isRoofView = (s: State): boolean => s.level === ROOF_LEVEL;
 
-export const cellInBounds = ({ x, y }: Cell): boolean => x >= 0 && y >= 0 && x < GRID_W && y < GRID_H;
-export const rectInBounds = (r: Rect): boolean => r.x >= 0 && r.y >= 0 && r.x + r.w <= GRID_W && r.y + r.h <= GRID_H;
-export const edgeInBounds = (e: Edge): boolean =>
+export const cellInBounds = (size: Size, { x, y }: Cell): boolean => x >= 0 && y >= 0 && x < size.w && y < size.h;
+export const rectInBounds = (size: Size, r: Rect): boolean => r.x >= 0 && r.y >= 0 && r.x + r.w <= size.w && r.y + r.h <= size.h;
+export const edgeInBounds = (size: Size, e: Edge): boolean =>
   e.axis === 'x'
-    ? e.x >= 0 && e.x < GRID_W && e.y >= 0 && e.y <= GRID_H
-    : e.x >= 0 && e.x <= GRID_W && e.y >= 0 && e.y < GRID_H;
+    ? e.x >= 0 && e.x < size.w && e.y >= 0 && e.y <= size.h
+    : e.x >= 0 && e.x <= size.w && e.y >= 0 && e.y < size.h;
 
 // What an object stands on: usually its footprint, but a flat piece (a road curve) may leave cells free
 const onCell = (o: ObjectPlacement, c: Cell): boolean => covers(o, c) && occupiedCells(o).some((d) => d.x === c.x && d.y === c.y);
@@ -455,7 +464,7 @@ export const buildPlan = (s: State, p: ObjectPlacement, run = false): BuildPlan 
 
 // Objects may sit against walls but never across one
 export const canPlaceObject = (s: State, p: ObjectPlacement): boolean =>
-  rectInBounds(p) &&
+  rectInBounds(s.size, p) &&
   !s.objects.some((o) => sharesCells(o, p)) &&
   !s.walls.some((w) => edgeThrough(w, p)) &&
   !occupiedCells(p).some((c) => hiddenUnderRoof(s, c));
@@ -487,7 +496,7 @@ const placeObjectAt = (s: State, cell: Cell, run = false): State => {
   return { ...s, objects: [...kept, { id: s.nextId, ...p }], nextId: s.nextId + 1 };
 };
 
-export const canPaint = (s: State, cell: Cell): boolean => cellInBounds(cell) && !hiddenUnderRoof(s, cell);
+export const canPaint = (s: State, cell: Cell): boolean => cellInBounds(s.size, cell) && !hiddenUnderRoof(s, cell);
 
 
 
@@ -553,7 +562,7 @@ export const wallDraft = (s: State): readonly Edge[] => {
 };
 
 export const canPlaceWall = (s: State, e: Edge): boolean =>
-  edgeInBounds(e) && !s.objects.some((o) => edgeThrough(e, o));
+  edgeInBounds(s.size, e) && !s.objects.some((o) => edgeThrough(e, o));
 
 // ===== Pointing at walls =====
 // Wall height follows the wall view on the 1st floor; the roof view always shows full walls.
@@ -846,12 +855,12 @@ const applyPaint = (s: State, plan: PaintPlan | null): State => {
 export type FloorFill = Readonly<{ cells: readonly Cell[]; mode: FillMode }>;
 
 export const floodTiles = (s: State, start: Cell, mode: FillMode): Cell[] => {
-  if (!cellInBounds(start)) return [];
+  if (!cellInBounds(s.size, start)) return [];
   const floorAt = new Map(s.tiles.map((t) => [cellKey(t), t.defId]));
   const startFloor = floorAt.get(cellKey(start)) ?? null;
   const walls = new Set(s.walls.filter((w) => !isFence(w.styleId)).map(edgeKey));
   const blocked = (e: Edge) => walls.has(edgeKey(e));
-  const fits = (c: Cell) => cellInBounds(c) && (mode === 'all' || (floorAt.get(cellKey(c)) ?? null) === startFloor);
+  const fits = (c: Cell) => cellInBounds(s.size, c) && (mode === 'all' || (floorAt.get(cellKey(c)) ?? null) === startFloor);
   const seen = new Map<string, Cell>([[cellKey(start), start]]);
   const queue: Cell[] = [start];
   for (let c = queue.pop(); c; c = queue.pop()) {
@@ -915,7 +924,7 @@ export const categoryOfTarget = (t: EraseTarget): CategoryId => {
 
 // The room around a cell: interior cells reached without crossing a real wall (fences do not divide rooms)
 export const roomAt = (s: State, start: Cell): readonly Cell[] | null => {
-  const inside = interiorCells(s.walls);
+  const inside = interiorCells(s.walls, s.size);
   if (!inside.has(cellKey(start))) return null;
   const blocked = (e: Edge) => { const w = wallAt(s, e); return w !== undefined && !isFence(w.styleId); };
   const seen = new Map<string, Cell>([[cellKey(start), start]]);
@@ -1018,8 +1027,8 @@ const replaceWall = (s: State, wall: WallSegment, next: WallSegment | null): Sta
 // Cells that became enclosed going from one set of walls to another get the style's floor,
 // unless they already have a tile (a path or floor someone chose stays as it is)
 const floorNewRooms = (before: State, after: State, floorId: string): State => {
-  const wasInside = interiorCells(before.walls);
-  const fresh = [...interiorCells(after.walls)]
+  const wasInside = interiorCells(before.walls, before.size);
+  const fresh = [...interiorCells(after.walls, after.size)]
     .filter((k) => !wasInside.has(k))
     .map((k) => {
       const [x = 0, y = 0] = k.split(',').map(Number);

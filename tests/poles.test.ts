@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { canopyCells, isInterior, wallHeight } from '../src/world.ts';
 import { WALL_H } from '../src/config.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -14,7 +16,7 @@ const line: HistoryAction = { type: 'setWallMode', mode: 'line' };
 let h = run(initialHistory, { type: 'select', id: 'brick' }, line, ...drag([10, 10], [20, 10]),
   { type: 'select', id: 'pole' }, ...drag([10, 12], [20, 12]), ...drag([10, 10], [10, 12]), ...drag([20, 10], [20, 12]));
 assert.ok(isInterior(h.state, { x: 12, y: 11 }), 'poles enclose like walls');
-const covered = canopyCells(h.state.walls);
+const covered = canopyCells(h.state.walls, SQ);
 assert.equal(covered.size, 20, 'the 10 by 2 strip is covered');
 assert.ok(covered.has('12,11') && !covered.has('12,9'));
 ok('a strip ringed by poles (and a wall) is a room with a canopy');
@@ -22,12 +24,12 @@ ok('a strip ringed by poles (and a wall) is a room with a canopy');
 // a room of solid walls has no canopy; a solid room next door keeps its own roof
 h = run(h, { type: 'select', id: 'plaster' }, { type: 'setWallMode', mode: 'square' }, ...drag([30, 30], [34, 34]));
 assert.ok(isInterior(h.state, { x: 31, y: 31 }));
-assert.ok(!canopyCells(h.state.walls).has('31,31'));
+assert.ok(!canopyCells(h.state.walls, SQ).has('31,31'));
 ok('rooms of solid walls get no canopy');
 
 // a pole on the edge of a solid room covers that room: a veranda opens it up
 h = run(h, { type: 'select', id: 'pole' }, line, ...drag([30, 30], [34, 30]));
-assert.ok(canopyCells(h.state.walls).has('31,31'), 'restyled to poles along one side');
+assert.ok(canopyCells(h.state.walls, SQ).has('31,31'), 'restyled to poles along one side');
 ok('one pole wall on its edge gives a room a canopy');
 
 // poles take no paint and no doors, and stand full height in every wall view

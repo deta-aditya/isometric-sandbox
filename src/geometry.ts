@@ -5,6 +5,20 @@ export type Point = Readonly<{ x: number; y: number }>; // fractional grid posit
 export type Rect = Readonly<{ x: number; y: number; w: number; h: number }>;
 export type ScreenPoint = Readonly<{ sx: number; sy: number }>;
 
+// How many tiles a map has along x (w) and y (h). One object per size, so sizes compare by identity
+// and can key caches (a view frame of a non-square map is the same map with w and h swapped).
+export type Size = Readonly<{ w: number; h: number }>;
+const sizes = new Map<string, Size>();
+export const sizeOf = (w: number, h: number): Size => {
+  const key = `${w}x${h}`;
+  const known = sizes.get(key);
+  if (known) return known;
+  const made: Size = Object.freeze({ w, h });
+  sizes.set(key, made);
+  return made;
+};
+export const swapped = (s: Size): Size => sizeOf(s.h, s.w);
+
 // A unit segment of a grid line. Axis 'x' runs from (x, y) to (x + 1, y); axis 'y' from (x, y) to (x, y + 1).
 export type Edge = Readonly<{ axis: 'x' | 'y'; x: number; y: number }>;
 

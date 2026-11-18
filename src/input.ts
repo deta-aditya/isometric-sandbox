@@ -4,6 +4,8 @@ import { GUIDES_ENABLED } from './config';
 import type { Application, Container, FederatedPointerEvent } from 'pixi.js';
 import { type Cell, type Point, cellOf, toGridPoint } from './geometry';
 import type { HistoryAction } from './history';
+import { clampCamera, clampZoom } from './camera';
+import { sizeInView } from './view';
 import type { State } from './world';
 
 const PAN_SPEED = 720; // screen pixels per second while a pan key is held
@@ -27,6 +29,15 @@ export const bindInput = (
   dispatch: (a: HistoryAction) => void,
   getState: () => State,
 ): void => {
+  // Pan and zoom stay within the map's limits for the view being looked at
+  const keepOnMap = (): void => {
+    const s = getState();
+    const c = clampCamera({ x: world.x, y: world.y, scale: world.scale.x }, sizeInView(s.size, s.view), { w: app.screen.width, h: app.screen.height });
+    world.scale.set(c.scale);
+    world.x = c.x;
+    world.y = c.y;
+  };
+
   // Exact grid position under the pointer, and the cell containing it
   const pointerAt = (e: FederatedPointerEvent): { cell: Cell; point: Point } => {
     const local = world.toLocal(e.global);
@@ -60,6 +71,7 @@ export const bindInput = (
       if (Math.hypot(dx, dy) > CLICK_SLOP) pan.moved = true;
       world.x = pan.worldX + dx;
       world.y = pan.worldY + dy;
+      keepOnMap();
     }
     dispatch({ type: 'hover', ...pointerAt(e) });
   });
@@ -91,11 +103,13 @@ export const bindInput = (
       e.preventDefault();
       const cursor = { x: e.offsetX, y: e.offsetY };
       const anchor = world.toLocal(cursor);
-      const scale = Math.min(3, Math.max(0.15, world.scale.x * (e.deltaY < 0 ? 1.1 : 0.9)));
+      const s = getState();
+      const scale = clampZoom(world.scale.x * (e.deltaY < 0 ? 1.1 : 0.9), sizeInView(s.size, s.view), { w: app.screen.width, h: app.screen.height });
       world.scale.set(scale);
       const moved = world.toGlobal(anchor);
       world.x += cursor.x - moved.x;
       world.y += cursor.y - moved.y;
+      keepOnMap();
     },
     { passive: false },
   );
@@ -112,6 +126,7 @@ export const bindInput = (
       world.x += dx * step;
       world.y += dy * step;
     });
+    keepOnMap();
     refreshHover();
   });
 

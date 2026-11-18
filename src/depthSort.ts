@@ -15,21 +15,48 @@ export const drawsBefore = (a: Rect, b: Rect): boolean => overlapsOnScreen(a, b)
 
 // Topological order over drawsBefore (DFS). Local mutation only;
 // the function itself is pure from the caller's point of view.
+//
+// Only things that overlap on screen get an order, so instead of comparing every pair (too slow on a
+// full 256 by 256 map) each item is filed under the screen columns its horizontal extent covers;
+// two items that overlap on screen always share a column. Within a column, an item m that draws
+// before n has m.x + m.y < n.x + n.y + max(n.w, n.h) (from isBehind and the overlap), so a column
+// sorted by x + y is read only up to there, starting past the items already placed.
 export const depthSort = <T extends Rect>(items: readonly T[]): readonly T[] => {
   const done = new Set<T>();
   const visiting = new Set<T>();
   const out: T[] = [];
+  const depth = (r: Rect) => r.x + r.y;
+  const byDepth = [...items].sort((a, b) => depth(a) - depth(b));
+
+  const columns = new Map<number, T[]>();
+  const columnsOf = (r: Rect): readonly number[] => {
+    const lo = Math.floor(r.x - r.y - r.h), hi = Math.ceil(r.x + r.w - r.y) - 1;
+    return Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => lo + i);
+  };
+  byDepth.forEach((it) => columnsOf(it).forEach((c) => { const col = columns.get(c); if (col) col.push(it); else columns.set(c, [it]); }));
+  const firstOpen = new Map<number, number>(); // per column, everything before this index is placed
 
   const visit = (n: T): void => {
     if (done.has(n) || visiting.has(n)) return;
     visiting.add(n);
-    items.forEach((m) => m !== n && drawsBefore(m, n) && visit(m));
+    const limit = depth(n) + Math.max(n.w, n.h);
+    columnsOf(n).forEach((c) => {
+      const col = columns.get(c) ?? [];
+      let i = firstOpen.get(c) ?? 0;
+      while (i < col.length && done.has(col[i]!)) i++;
+      firstOpen.set(c, i);
+      for (; i < col.length; i++) {
+        const m = col[i]!;
+        if (depth(m) >= limit) break;
+        if (m !== n && !done.has(m) && drawsBefore(m, n)) visit(m);
+      }
+    });
     visiting.delete(n);
     done.add(n);
     out.push(n);
   };
 
-  [...items].sort((a, b) => a.x + a.y - (b.x + b.y)).forEach(visit);
+  byDepth.forEach(visit);
   return out;
 };
 

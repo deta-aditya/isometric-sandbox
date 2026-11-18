@@ -1,7 +1,8 @@
 // Scene view: State -> Pixi drawing. Owns the Graphics layers, nothing else.
 import { Container, Graphics } from 'pixi.js';
 import { type Rotation, footprintOf, getItem, getTileDef, isFlat, occupiedCells } from '../catalog';
-import { GRID_H, GRID_W, ROOF_T, WALL_H } from '../config';
+import { ROOF_T, WALL_H } from '../config';
+import type { Size } from '../geometry';
 import { type Rect, nearestVertex } from '../geometry';
 import {
   type State,
@@ -101,8 +102,17 @@ export const createScene = (world: Container) => {
   world.addChild(ground, gridLines, floors, flats, guides, overlay, solids);
   const guideLines = createGuides(guides);
 
-  drawGround(ground, GRID_W, GRID_H);
-  drawGridLines(gridLines, GRID_W, GRID_H);
+  // Ground and grid lines are one fill and long lines, redrawn only when the frame's size changes
+  // (a new game or load, or turning a non-square map)
+  let groundSize: Size | null = null;
+  const drawGroundFor = (size: Size): void => {
+    if (size === groundSize) return;
+    groundSize = size;
+    ground.clear();
+    gridLines.clear();
+    drawGround(ground, size.w, size.h);
+    drawGridLines(gridLines, size.w, size.h);
+  };
 
   const drawFloors = (state: State): void => {
     floors.clear();
@@ -262,6 +272,7 @@ export const createScene = (world: Container) => {
   };
 
   const render = (state: State): void => {
+    drawGroundFor(state.size);
     const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state);
     gridLines.alpha = gridAlpha(state);
     gridLines.visible = gridLines.alpha > 0;

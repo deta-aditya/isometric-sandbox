@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, canUndo, initialHistory, step } from '../src/history.ts';
 import { fromView, pointFromView, pointToView, toView } from '../src/view.ts';
 import { wallAt } from '../src/world.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -30,7 +32,7 @@ ok('turning into a view and back gives the very same lists, so nothing looks cha
 
 [1, 2, 3].forEach((v) => {
   const p = { x: 12.25, y: 40.75 };
-  const q = pointFromView(pointToView(p, v as 1), v as 1);
+  const q = pointFromView(pointToView(p, v as 1, SQ), v as 1, SQ);
   assert.ok(Math.abs(q.x - p.x) < 1e-9 && Math.abs(q.y - p.y) < 1e-9);
 });
 ok('points turn into a view and back');
@@ -60,7 +62,7 @@ ok('hovering in a turned view changes nothing in the world');
 // In view 1, world (x, y) shows at (64 - y, x). Clicking view cell (43, 20) is world cell (20, 20) .. checked by turning back
 [1, 2, 3].forEach((v) => {
   const view = v as 1 | 2 | 3;
-  const at = pointToView({ x: 40.5, y: 22.5 }, view); // the screen spot over world cell (40, 22)
+  const at = pointToView({ x: 40.5, y: 22.5 }, view, SQ); // the screen spot over world cell (40, 22)
   const done = run(built, ...turnTo(v), { type: 'select', id: 'crate' }, ...click(at.x, at.y));
   const crate = done.state.objects.find((o) => o.defId === 'crate');
   assert.deepEqual(crate && { x: crate.x, y: crate.y }, { x: 40, y: 22 }, `view ${v}`);
@@ -70,7 +72,7 @@ ok('a 1x1 object lands on the world cell under the pointer in every view');
 // the build facing belongs to the world: a sofa set to face one way faces that way in the world from any
 // camera, and on screen it turns with everything else. Its footprint still covers the pointed-at cell.
 [0, 1, 2, 3].forEach((v) => {
-  const at = pointToView({ x: 40.5, y: 22.5 }, v as 1);
+  const at = pointToView({ x: 40.5, y: 22.5 }, v as 1, SQ);
   const done = run(initialHistory, ...turnTo(v), { type: 'select', id: 'sofa' }, ...click(at.x, at.y));
   const o = done.state.objects[0]!;
   const seen = toView(done.state).objects[0]!;
@@ -84,7 +86,7 @@ ok('the build facing is a world facing; on screen the footprint grows from the p
 
 // walls drawn in a turned view are the same world walls
 [1, 2, 3].forEach((v) => {
-  const a = pointToView({ x: 40.02, y: 50.02 }, v as 1), b = pointToView({ x: 42.98, y: 50.02 }, v as 1);
+  const a = pointToView({ x: 40.02, y: 50.02 }, v as 1, SQ), b = pointToView({ x: 42.98, y: 50.02 }, v as 1, SQ);
   const done = run(initialHistory, ...turnTo(v), { type: 'select', id: 'brick' }, { type: 'setWallMode', mode: 'line' },
     { type: 'hover', ...pt(a.x, a.y) }, { type: 'press', ...pt(a.x, a.y) }, { type: 'hover', ...pt(b.x, b.y) }, { type: 'release' });
   assert.deepEqual(done.state.walls.map((w) => `${w.axis}:${w.x},${w.y}`).sort(), ['x:40,50', 'x:41,50', 'x:42,50'], `view ${v}`);
@@ -102,7 +104,7 @@ const farInside = [
   { v: 3, at: { x: 13.8, y: 11.5 }, wall: [14, 11] as const, side: 'before' as const, axis: 'y' as const }, // east wall is far in view 3
 ];
 farInside.forEach(({ v, at, wall: [wx, wy], side, axis }) => {
-  const p = pointToView(at, v as 1);
+  const p = pointToView(at, v as 1, SQ);
   const done = run(initialHistory, { type: 'select', id: 'plaster' }, { type: 'setWallMode', mode: 'square' },
     ...drag([10.5, 10.5], [13.5, 12.5]), ...turnTo(v), { type: 'select', id: 'paint-mint' }, ...click(p.x, p.y));
   const w = wall(done, axis ?? 'x', wx, wy);
@@ -122,7 +124,7 @@ ok('turned walls carry their paint to the side that now faces the camera');
 // a long door along a world y wall, built in view 1 (where that wall runs along x, in reverse)
 const yRoom = run(initialHistory, { type: 'select', id: 'plaster' }, { type: 'setWallMode', mode: 'line' }, ...drag([20.02, 20.02], [20.02, 24.98]));
 [0, 1, 2, 3].forEach((v) => {
-  const a = pointToView({ x: 20.02, y: 21.5 }, v as 1), b = pointToView({ x: 20.02, y: 23.5 }, v as 1);
+  const a = pointToView({ x: 20.02, y: 21.5 }, v as 1, SQ), b = pointToView({ x: 20.02, y: 23.5 }, v as 1, SQ);
   const done = run(yRoom, ...turnTo(v), { type: 'select', id: 'long-door' },
     { type: 'hover', ...pt(a.x, a.y) }, { type: 'press', ...pt(a.x, a.y) }, { type: 'hover', ...pt(b.x, b.y) }, { type: 'release' });
   const ids = [21, 22, 23].map((y) => wall(done, 'y', 20, y)?.opening);
@@ -149,7 +151,7 @@ const canal = run(initialHistory, { type: 'select', id: 'canal' },
   ...[40, 41, 42].flatMap((y) => [40, 41, 42, 43, 44, 45].flatMap((x) => click(x + 0.5, y + 0.5))), { type: 'cancel' });
 assert.equal(canal.state.tiles.length, 18);
 [0, 1, 2, 3].forEach((v) => {
-  const a = pointToView({ x: 40.03, y: 40.5 }, v as 1), b = pointToView({ x: 40.03, y: 42.5 }, v as 1);
+  const a = pointToView({ x: 40.03, y: 40.5 }, v as 1, SQ), b = pointToView({ x: 40.03, y: 42.5 }, v as 1, SQ);
   const done = run(canal, ...turnTo(v), { type: 'select', id: 'culvert' },
     { type: 'hover', ...pt(a.x, a.y) }, { type: 'press', ...pt(a.x, a.y) }, { type: 'hover', ...pt(b.x, b.y) }, { type: 'release' });
   assert.deepEqual(done.state.culverts.map((e) => `${e.axis}:${e.x},${e.y}`).sort(), ['y:40,40', 'y:40,41', 'y:40,42'], `view ${v}`);

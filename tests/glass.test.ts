@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { interiorCells, paintPlan } from '../src/world.ts';
 import { faceColor } from '../src/render/drawables.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -12,7 +14,7 @@ let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
 // a glass room is still a room
 const room = run(initialHistory, { type: 'select', id: 'glass' }, { type: 'setWallMode', mode: 'square' }, ...drag([10.5, 10.5], [12.5, 12.5]), { type: 'cancel' });
-assert.equal(interiorCells(room.state.walls).size, 9);
+assert.equal(interiorCells(room.state.walls, SQ).size, 9);
 ok('glass walls form rooms like any wall');
 
 // glass takes paint like any wall: a click paints one side, a Shift fill goes around the room

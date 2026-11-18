@@ -3,15 +3,14 @@
 // brightens (a click removes it, a drag moves it), or else a faint preview shows on the grid line
 // where a click would add one. While dragging, the guide is shown where it would land.
 import { Container, Graphics } from 'pixi.js';
-import { GRID_H, GRID_W } from '../config';
-import { toScreen } from '../geometry';
+import { type Size, toScreen } from '../geometry';
 import { type Guide, type State, guideDragTarget, guideUnder } from '../world';
 
 export const GUIDE = 0x22d3ee;
 const BRIGHT = 0xf8fafc;
 
-const ends = (g: Guide): number[] => {
-  const [a, b] = g.axis === 'x' ? [toScreen(g.at, 0), toScreen(g.at, GRID_H)] : [toScreen(0, g.at), toScreen(GRID_W, g.at)];
+const ends = (g: Guide, size: Size): number[] => {
+  const [a, b] = g.axis === 'x' ? [toScreen(g.at, 0), toScreen(g.at, size.h)] : [toScreen(0, g.at), toScreen(size.w, g.at)];
   return [a.sx, a.sy, b.sx, b.sy];
 };
 
@@ -28,13 +27,13 @@ export const createGuides = (layer: Container) => {
     const hidden = drag?.index ?? hit?.index ?? null;
 
     lines.clear();
-    state.guides.forEach((g, i) => i !== hidden && lines.poly(ends(g), false));
+    state.guides.forEach((g, i) => i !== hidden && lines.poly(ends(g, state.size), false));
     lines.stroke({ width: 1.5, color: GUIDE, alpha: 0.8 });
 
     lit.clear();
-    if (target && target !== 'remove') lit.poly(ends(target), false).stroke({ width: 2.5, color: BRIGHT, alpha: 0.95 });
-    else if (hit?.index != null) lit.poly(ends(hit.guide), false).stroke({ width: 2.5, color: BRIGHT, alpha: 0.95 });
-    else if (hit) lit.poly(ends(hit.guide), false).stroke({ width: 2, color: GUIDE, alpha: 0.6 });
+    if (target && target !== 'remove') lit.poly(ends(target, state.size), false).stroke({ width: 2.5, color: BRIGHT, alpha: 0.95 });
+    else if (hit?.index != null) lit.poly(ends(hit.guide, state.size), false).stroke({ width: 2.5, color: BRIGHT, alpha: 0.95 });
+    else if (hit) lit.poly(ends(hit.guide, state.size), false).stroke({ width: 2, color: GUIDE, alpha: 0.6 });
   };
 
   return { render };

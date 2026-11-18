@@ -1,6 +1,6 @@
 // Pure: turns State into a depth-sorted list of things to draw, with previews merged in.
 import { type FenceLook, type GlassLook, getItem, getOpeningDef, getPaint, getObjectDef, getTileDef, getWallStyle, isFlat, isPole, isSmart, isWaterTile, layerOf, occupiedCells } from '../catalog';
-import { CUT_WALL_H, GRID_H, GRID_W, WALL_H } from '../config';
+import { CUT_WALL_H, WALL_H } from '../config';
 import { depthSort } from '../depthSort';
 import { type Cell, type Edge, type Rect, cellKey, cellsOf, edgeKey, edgeRect } from '../geometry';
 import type { WallPiece } from './shapes';
@@ -172,7 +172,7 @@ export const isCutLow = (state: State, wall: WallSegment): boolean => wallHeight
 
 export const buildDrawables = (state: State) => {
   const roof = isRoofView(state);
-  const interior = interiorCells(state.walls);
+  const interior = interiorCells(state.walls, state.size);
   const inside = (c: Cell) => interior.has(cellKey(c));
   const heightOf = (wall: WallSegment): number => wallHeight(state, wall);
   // for pole posts: walls by edge, and how many walls end at each vertex
@@ -199,14 +199,14 @@ export const buildDrawables = (state: State) => {
 
   // Canopies over rooms with pole walls, on every floor; in the roof view they stand in for the roof.
   // The room under the pointer fades, so you can see what you are placing under it.
-  const covered = canopyCells(state.walls);
+  const covered = canopyCells(state.walls, state.size);
   const under = state.hover ? covered.get(cellKey(state.hover)) : undefined;
   const canopies: readonly CanopyDrawable[] = [...covered].map(([key, room]) => {
     const [x = 0, y = 0] = key.split(',').map(Number);
     return { kind: 'canopy', x, y, w: 1, h: 1, color: CANOPY_COLOR, alpha: room === under ? 0.3 : 1 };
   });
   const roofs: readonly RoofDrawable[] = roof
-    ? cellsOf({ x: 0, y: 0, w: GRID_W, h: GRID_H })
+    ? cellsOf({ x: 0, y: 0, w: state.size.w, h: state.size.h })
         .filter((c) => inside(c) && !covered.has(cellKey(c)))
         .map((c) => ({ kind: 'roof', x: c.x, y: c.y, w: 1, h: 1 }))
     : [];

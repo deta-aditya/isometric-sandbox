@@ -1,10 +1,12 @@
 // The view angle comes only from the tile's shape. A 2:1 tile is classic isometric (grid lines
 // slope about 26.6 degrees), so the width is derived from the height: scaling tiles keeps the angle.
-// Grid size (below) only sets how many tiles there are and never affects the angle.
+// Map size only sets how many tiles there are and never affects the angle.
 export const TILE_H = 32;
 export const TILE_W = TILE_H * 2;
-export const GRID_W = 64;
-export const GRID_H = 64;
+// Map size is part of each world (set when a new game starts); these bound what a new game may pick
+export const DEFAULT_GRID = 64;
+export const MIN_GRID = 16;
+export const MAX_GRID = 256;
 
 // Walls (heights in pixels, thickness in tiles)
 export const WALL_H = 56;

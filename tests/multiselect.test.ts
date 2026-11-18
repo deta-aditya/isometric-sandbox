@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, canUndo, initialHistory, step } from '../src/history.ts';
 import { pointToView } from '../src/view.ts';
 import { heldPlan, wallAt } from '../src/world.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -180,7 +182,7 @@ ok('an unmarked object still lifts on a click and lets go after the drop; a door
 // ===== From a turned camera =====
 // the same box and move done in view 2 (screen positions turned) gives the same world. A box starts on
 // open ground in front of the room, which in view 2 is the opposite corner, so a press there is not on a wall face
-const v = (x: number, y: number) => pointToView({ x, y }, 2);
+const v = (x: number, y: number) => pointToView({ x, y }, 2, SQ);
 const at = (x: number, y: number): [number, number] => { const p = v(x, y); return [p.x, p.y]; };
 h = run(world, { type: 'rotateView', dir: 1 }, { type: 'rotateView', dir: 1 },
   ...drag(at(9.5, 9.5), at(13.5, 12.5)), ...click(...at(10.5, 10.5)), ...click(...at(20.5, 30.5)));

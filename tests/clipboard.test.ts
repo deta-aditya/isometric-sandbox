@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { pointToView } from '../src/view.ts';
 import { heldPlan, justCopied, wallAt } from '../src/world.ts';
+import { sizeOf } from '../src/geometry.ts';
+const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
 const drag = (a: [number, number], b: [number, number]): HistoryAction[] =>
@@ -103,7 +105,7 @@ ok('paste works from any tool; copying while holding copies what is held');
 
 // from a turned camera: copy and paste with screen positions turned gives the same world (the box starts
 // on open ground in front of the room, which in view 1 is its north-east corner)
-const v = (x: number, y: number): [number, number] => { const p = pointToView({ x, y }, 1); return [p.x, p.y]; };
+const v = (x: number, y: number): [number, number] => { const p = pointToView({ x, y }, 1, SQ); return [p.x, p.y]; };
 h = run(world, { type: 'rotateView', dir: 1 }, ...drag(v(13.5, 9.5), v(9.5, 12.5)), { type: 'copy' }, { type: 'paste' }, ...click(...v(31.5, 30.5)));
 assert.equal(total(h), roomSize * 2);
 assert.equal(h.state.walls.filter((w) => w.x > 25).length, 10);
