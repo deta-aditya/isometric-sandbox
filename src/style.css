@@ -1,0 +1,788 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1e293b;
+  font-family: system-ui, sans-serif;
+  color: #e2e8f0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.panel,
+#bar,
+#tray,
+#status,
+#help {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1e293b;
+}
+
+button.active {
+  background: #334155;
+  border-color: #94a3b8;
+}
+
+img {
+  display: block;
+  object-fit: contain;
+}
+
+kbd {
+  background: #334155;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+/* ---------- Bottom bar ---------- */
+/* Bar and tray share one fixed width so nothing jumps between categories or tabs */
+:root {
+  --hud-width: 1060px; /* one row fits the tool chip, tools, categories, Blueprints and the right group */
+  --bar-height: 76px; /* kept in sync with the real bar height by the HUD */
+  --edge: 12px;
+}
+
+#bar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  width: min(var(--hud-width), calc(100% - 24px));
+  box-sizing: border-box;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 196px;
+  padding-right: 12px;
+  border-right: 1px solid #334155;
+}
+
+.tool img {
+  width: 40px;
+  height: 40px;
+}
+
+.tool-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.tool-text b {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-text span {
+  color: #94a3b8;
+}
+
+.categories {
+  display: flex;
+  gap: 4px;
+}
+
+.category {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 64px;
+  padding: 4px 2px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.category img {
+  width: 40px;
+  height: 36px;
+}
+
+/* little notch showing which category the tray belongs to */
+.category.open {
+  box-shadow: inset 0 3px 0 #4ade80;
+}
+
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid #334155;
+}
+
+.floors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.floor {
+  white-space: nowrap;
+  padding: 2px 10px;
+  font-size: 12px;
+  border-color: #334155;
+}
+
+.help-toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border-color: #334155;
+  font-weight: 700;
+}
+
+/* ---------- Item tray ---------- */
+#tray {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--bar-height) + var(--edge) + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  width: min(var(--hud-width), calc(100% - 24px));
+  height: 170px; /* fixed so the tray never changes shape; fits two-line item names */
+  box-sizing: border-box;
+}
+
+/* Horizontal tab strip; scrolls sideways if a category ever has many groups */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #334155;
+  overflow-x: auto;
+  overflow-y: hidden; /* sideways only */
+  flex: none;
+}
+
+.tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 4px;
+  font-size: 12px;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.tab img {
+  width: 24px;
+  height: 22px;
+}
+
+.tab.active {
+  color: #f8fafc;
+  box-shadow: inset 0 -3px 0 #4ade80;
+}
+
+/* Takes the remaining width; extra items scroll sideways instead of widening the tray */
+.items {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch; /* cards in a row share one height, one-line names or two */
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden; /* sideways only */
+}
+
+.item-card {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+
+.item-card > .item {
+  justify-content: flex-start;
+}
+
+.item-card.active > .item {
+  background: #334155;
+  border-color: #94a3b8;
+}
+
+/* Line | Square switch: stacked over the whole card on hover, and kept up on the selected card */
+.modes {
+  position: absolute;
+  inset: 4px;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 6px;
+  background: #0f172a;
+}
+
+.item-card:hover .modes,
+.item-card.active .modes {
+  display: flex;
+}
+
+.mode {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 3px;
+  font-size: 12px;
+  color: #cbd5e1;
+  border-color: #1e293b;
+}
+
+.mode img {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.mode.active {
+  background: #14532d;
+  border-color: #4ade80;
+  color: #f0fdf4;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  padding: 6px 4px;
+  border-color: #1e293b;
+  background: #0f172a;
+}
+
+.item img {
+  width: 64px;
+  height: 56px;
+}
+
+.item .name {
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.item kbd {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+}
+
+/* ---------- Blueprint cards ---------- */
+/* Names are typed by the player, so they may be long: two lines at most, then an ellipsis */
+.blueprint-card .name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.blueprint-actions {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blueprint-action {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: #cbd5e1;
+  background: #1e293b;
+  border-color: #334155;
+  opacity: 0.75;
+}
+
+.blueprint-card:hover .blueprint-action {
+  opacity: 1;
+}
+
+.blueprint-action.remove.armed {
+  color: #fff;
+  background: #dc2626;
+  border-color: #fca5a5;
+  opacity: 1;
+}
+
+.blueprint-name {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 6px;
+  width: auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 3px;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 1px solid #60a5fa;
+  border-radius: 4px;
+}
+
+/* the first card before anything is marked: a hint to go and mark things, not yet a save */
+.item-card > .item.hint .name {
+  color: #93c5fd;
+}
+
+/* while the name is typed, the card's own name hides under the field */
+.blueprint-card.renaming .name {
+  visibility: hidden;
+}
+
+.blueprint-card.renaming > .item:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.item-card > .item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Status and help ---------- */
+#status {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  white-space: pre;
+}
+
+#help {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--bar-height) + var(--edge) + 8px);
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+#help h2 {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+/* ---------- Tool buttons in the category row ---------- */
+.categories .divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: #334155;
+}
+
+.tool-button.active {
+  background: #450a0a;
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.select-button img,
+.picker-button img {
+  width: 30px;
+}
+
+.select-button.active,
+.picker-button.active {
+  background: #172554;
+  border-color: #3b82f6;
+  color: #dbeafe;
+}
+
+/* ---------- Undo / redo ---------- */
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border-color: #334155;
+}
+
+.history-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.history-button:disabled:hover {
+  background: transparent;
+}
+
+/* ---------- Narrow screens (phones) ----------
+   The bar becomes two rows: the tool chip with history, floors and help on top, and every tool and
+   category button below in a row that scrolls sideways when it does not fit. */
+@media (max-width: 1100px) {
+  :root {
+    --edge: 8px;
+  }
+
+  #bar {
+    bottom: var(--edge);
+    width: calc(100% - 2 * var(--edge));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'tool right'
+      'cats cats';
+    gap: 6px 8px;
+    padding: 6px 8px;
+  }
+
+  .tool {
+    grid-area: tool;
+    width: auto;
+    min-width: 0;
+    padding-right: 0;
+    border-right: none;
+  }
+
+  .tool img {
+    width: 34px;
+    height: 34px;
+  }
+
+  .bar-right {
+    grid-area: right;
+    padding-left: 0;
+    border-left: none;
+    gap: 6px;
+  }
+
+  .categories {
+    grid-area: cats;
+    overflow-x: auto;
+    overflow-y: hidden; /* sideways only */
+    padding-top: 6px;
+    border-top: 1px solid #334155;
+    scrollbar-width: none;
+  }
+
+  .categories::-webkit-scrollbar {
+    display: none;
+  }
+
+
+  .category {
+    flex: none;
+    width: 58px;
+    font-size: 10px;
+  }
+
+  .category img {
+    width: 32px;
+    height: 28px;
+  }
+
+  #tray {
+    width: calc(100% - 2 * var(--edge));
+  }
+
+  /* more specific than the global .floor rules, which come later in this file */
+  .floors .floor .long {
+    display: none;
+  }
+
+  .floors .floor .short {
+    display: inline;
+  }
+
+  #status {
+    top: var(--edge);
+    left: var(--edge);
+  }
+
+  #help {
+    right: var(--edge);
+    max-width: calc(100% - 2 * var(--edge) - 28px);
+  }
+}
+
+/* Sideways-scrolling rows (tabs, items, and the phone button row) fade the side with more to see */
+.more-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+}
+
+.more-left {
+  mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+}
+
+.more-left.more-right {
+  mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+}
+
+.floor .short {
+  display: none;
+}
+
+/* ---------- Bulldoze filter (in the tool chip) ---------- */
+.bulldoze-filters {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.bulldoze-filters[hidden] {
+  display: none;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border-color: #334155;
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.filter-toggle.active {
+  opacity: 1;
+  filter: none;
+  border-color: #ef4444;
+}
+
+/* In select the toggles mean "picked", so they take the selection blue instead of the bulldoze red */
+.bulldoze-filters.for-select .filter-toggle.active {
+  border-color: #3b82f6;
+}
+
+.filter-toggle img {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 420px) {
+  .filter-toggle {
+    width: 20px;
+  }
+
+  .filter-toggle img {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+/* ---------- Grid lines toggle and guide tool, stacked ---------- */
+.view-aids {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grid-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  border-color: #334155;
+  color: #64748b;
+}
+
+.grid-button.active {
+  color: #f8fafc;
+}
+
+/* Alone (guide lines turned off), the grid toggle takes the full height again */
+.view-aids .grid-button:only-child {
+  height: 34px;
+}
+
+/* The guide tool is a tool: when on it takes the guide line's cyan */
+.guide-button.active {
+  color: #22d3ee;
+  border-color: #22d3ee;
+}
+
+/* A small text action in the tool chip (the guide tool's Clear all) */
+.chip-action {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  border-color: #334155;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.chip-action[hidden] {
+  display: none;
+}
+
+/* ---------- Camera turn buttons (next to the grid toggle) ---------- */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.turn-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  border-color: #334155;
+}
+
+/* ---------- Wall view switch (next to undo/redo) ---------- */
+.wall-view {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wall-view-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+.wall-view-button.active {
+  color: #f8fafc;
+}
+
+.wall-view-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.wall-view-button:disabled:hover {
+  background: transparent;
+}
+
+/* ---------- Very narrow phones ----------
+   The grid toggle folds under undo and redo, all three at the wall-view switch's height; the guide
+   button and the turn button fold under help. None of them cost extra width, so the tool box keeps
+   room for long item names. */
+@media (max-width: 420px) {
+  .bar-right {
+    display: grid;
+    grid-template-rows: auto auto;
+    column-gap: 6px;
+    row-gap: 2px;
+    align-items: center;
+  }
+
+  .history {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .history-button {
+    height: 16px;
+  }
+
+  .view-aids {
+    display: contents;
+  }
+
+  .grid-button,
+  .view-aids .grid-button:only-child {
+    grid-row: 2;
+    grid-column: 1;
+    height: 16px;
+  }
+
+  .wall-view {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+
+  .floors {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+  }
+
+  /* help on top of the first row's height, the guide button at its bottom */
+  .guide-button {
+    grid-row: 1;
+    grid-column: 4;
+    align-self: end;
+  }
+
+  /* Help and turning share a column: a short ? on top, the clockwise turn under it (four taps go
+     all the way round, so the counterclockwise button can go) */
+  .help-toggle {
+    grid-row: 1;
+    grid-column: 4;
+    align-self: start;
+    height: 16px;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .turn {
+    grid-row: 2;
+    grid-column: 4;
+  }
+
+  .turn-button:first-child {
+    display: none;
+  }
+}

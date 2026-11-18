@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Isometric Placement Prototype</title>
+  </head>
+  <body>
+    <div id="status"></div>
+    <div id="help" hidden>
+      <h2>Controls</h2>
+      <div><kbd>V</kbd> select: click an item to pick it up, click again to drop it</div>
+      <div>Drag a box to mark everything in it; <kbd>Shift</kbd> + click adds or removes, <kbd>Shift</kbd> + box adds</div>
+      <div>With things marked, click anywhere to move them all; <kbd>R</kbd> turns them in place; <kbd>Esc</kbd> or <b>right click</b> lets go</div>
+      <div>The toggles in the tool box (or <kbd>Shift</kbd>+<kbd>1</kbd>-<kbd>4</kbd>) choose which kinds select picks</div>
+      <div><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> copy or cut what is marked; <kbd>Ctrl</kbd>+<kbd>V</kbd> paste, click to place copies, <kbd>Esc</kbd> to stop</div>
+      <div><b>Blueprints</b>: mark things, then <b>Save as blueprint</b> in the Blueprints tray; click a card (or its number) to place copies</div>
+      <div>In select, <kbd>Q</kbd> builds more of the item under the cursor</div>
+      <div>While moving: <kbd>R</kbd> turn (<kbd>Shift</kbd>+<kbd>R</kbd> back), <kbd>Esc</kbd> put back, <kbd>Del</kbd> delete</div>
+      <div><kbd>I</kbd> picker: click anything placed to build more of it</div>
+      <div><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> or <kbd>Ctrl</kbd>+<kbd>Y</kbd> redo</div>
+      <div><b>Click</b> place, <b>drag</b> paint tiles or build walls along grid lines</div>
+      <div>Walls: <kbd>M</kbd> switches between line mode and square mode</div>
+      <div>Paints: click or drag along walls to paint the side you point at (glass gets a tint); Plain strips it</div>
+      <div><kbd>Shift</kbd> + click fills: a floor spreads over the same floor (walls stop it), a paint along the wall over the same paint</div>
+      <div><kbd>Shift</kbd> + <kbd>Ctrl</kbd> + click fills over every floor or paint</div>
+      <div>Openings: click a wall to add a door, window or arch</div>
+      <div><kbd>B</kbd> bulldoze: click, or drag a box, to remove; <kbd>Shift</kbd> + click clears a whole room</div>
+      <div>While bulldozing, <kbd>1</kbd>-<kbd>4</kbd> (or the toggles) choose what goes: scenery, furniture, flooring, building</div>
+      <div><b>Right drag</b>, <kbd>Space</kbd> + drag, <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows: pan, <b>wheel</b>: zoom</div>
+      <div><kbd>Q</kbd> <kbd>E</kbd> category, <kbd>Tab</kbd> next tab, <kbd>1</kbd>-<kbd>9</kbd> item, <kbd>R</kbd> turn a quarter (<kbd>Shift</kbd>+<kbd>R</kbd> back)</div>
+      <div><kbd>Esc</kbd> or <b>right click</b> while building: back to select</div>
+      <div><kbd>[</kbd> <kbd>]</kbd> change floor, <kbd>Esc</kbd> cancel or close tray</div>
+      <div><kbd>G</kbd> grid lines on or off (they stay faint while building)</div>
+      <div><kbd>,</kbd> <kbd>.</kbd> turn the view to see the other sides (or the turn buttons)</div>
+    </div>
+    <div id="tray" hidden></div>
+    <div id="bar"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

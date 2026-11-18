@@ -1,0 +1,24 @@
+{
+ "files": {
+  "assets/CanvasPool-B1MOiLaR.js": "db119314c34c039397512f398dbc26bc7145b50779ab3d09b0acca88d12a38dd",
+  "assets/CanvasRenderer-Bgl_BWMk.js": "d9ed8e472b6f6fa02ec9928daf5097ce2149e256c1da7014907b5032f57552ba",
+  "assets/CanvasRenderer-DckwDh7L.js": "5927610c3c34966a510f3fb391e13e5240346dd7ebb25e4367ad964d6bf7ee3b",
+  "assets/RenderTargetSystem-BBvGRHIO.js": "a3e30dfde551597b173d3d6c3195822dd16f7261e74de0db6f2ec50ac9d3b53e",
+  "assets/WebGLRenderer-C7ECzh-1.js": "4db5de10d873953be15fa150d662ad70386e293c31d8de11a83e96ef2a39a69d",
+  "assets/WebGLRenderer-CZy6QnFq.js": "9bf41f87d9ec2aed8a529ab086965141feba54252cd18bac865403079c108fb2",
+  "assets/WebGPURenderer-D0gi2sM1.js": "bcb8080a5a1065390c3ef08cf73d48cf04f3c556857d76ef4b3b5489e10698cb",
+  "assets/WebGPURenderer-DB6SQQql.js": "64782c040d4f40a069e7d09c7f1fe0fd4dbe2e3e67c7757c92e1324167af8046",
+  "assets/browserAll-C0a-D56K.js": "9ee4ac5b392b13c21535318258e03d5ece5176a6de865add7c167d6a20cba484",
+  "assets/canvasUtils-DGSOs_Mg.js": "c824409800fa5a1f2b33e0b546e812a068cd42e12c4ed00b61d11fac7c8c0212",
+  "assets/getTexelRangeRects-IwCUmH1o.js": "626b9201d3caff168793b355c1a6470b1d412709a8e427e0ca7b656831ccfc55",
+  "assets/getTextureBatchBindGroup-BHFMc0qq.js": "611368f0c1f915ce00f298842365aec680a2a01c6066dc13491317526843e835",
+  "assets/index-5yzSbWa4.css": "0f6eb1e12133e2ca0546c7d4e8aca79a1c95788ae5e72e0b7f7c87288bc58d84",
+  "assets/index-CjpyLCUl.js": "c9097cad7348bc0aac5f19857b895e4b06bcb51411154b8adcb2a367df532fde",
+  "assets/init-C0y8oMiK.js": "8509749198f51c01785237fba73099946de6296a5043e4c45f0b4ca83c2f5e15",
+  "assets/init-Cjy2Qf7W.js": "8461b4347dc9f4e849381bd329eb69d606bf5c9ceaad9a8e481513e52d72356a",
+  "assets/webworkerAll-DTxmR0TW.js": "c7fa08c4581f0d04ccbbea724c7c53f71e780f76c7c118c8ba77ade55c0d4b1c",
+  "index.html": "2cf4c801cb0dcc6427afaafd3a2b579c88d2dba25adacd38e81fa504d9440ccf"
+ },
+ "slug": "65317c6c-9a10-4539-a42e-a0f56235dea1",
+ "version": "1794906470-6fab"
+}
