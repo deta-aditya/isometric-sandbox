@@ -1,6 +1,6 @@
 // HUD view: State -> DOM. Bottom bar with category icons, an item tray above it,
 // a current-tool chip, floor switcher, help popover and a small status pill.
-import { guideFromView } from '../view';
+import { guideFromView, pointFromView, sizeInView } from '../view';
 import { isCutLow } from './drawables';
 import {
   CATEGORIES,
@@ -572,7 +572,9 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
         : `${f.name}: ${on ? 'removed' : 'kept'} (${f.key})`;
     });
 
-    const hover = state.hover ? `(${state.hover.x}, ${state.hover.y})` : '';
+    // the cell under the pointer as the world names it, so it reads the same from every side
+    const at = state.hover && pointFromView({ x: state.hover.x + 0.5, y: state.hover.y + 0.5 }, state.view, sizeInView(state.size, state.view));
+    const hover = at ? `(${Math.floor(at.x)}, ${Math.floor(at.y)})` : '';
     status.textContent = `${LEVELS[state.level]}  ·  ${state.objects.length} objects  ·  ${state.walls.length} walls  ${hover}`;
   };
 

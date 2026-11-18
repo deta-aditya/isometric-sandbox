@@ -136,3 +136,26 @@ ok('zooming out goes far enough for a 256 by 256 map to fit on screen; small map
 });
 assert.equal(clampCamera({ x: 0, y: 0, scale: 9 }, WIDE, screen).scale, 3);
 ok('the camera cannot pan the map off screen, starts centered on it, and zoom stays in its range');
+
+// ===== Drawing only what is on screen =====
+{
+  const { buildDrawables, inWindow } = await import('../src/render/drawables.ts');
+  const big = sizeOf(256, 256);
+  const pots = [[10, 10], [200, 200], [128, 128], [129, 140]].map(([x, y], i) => ({ id: i + 1, defId: 'flower-pot', x: x!, y: y!, w: 1, h: 1, rotation: 0 as const }));
+  const s: State = { ...initialState, size: big, objects: pots, nextId: 9 };
+  // a window around the screen spot of cell (128, 128)
+  const c = toScreen(128.5, 128.5);
+  const win = { left: c.sx - 300, right: c.sx + 300, top: c.sy - 200, bottom: c.sy + 200 };
+  const near = buildDrawables(s, win).sorted.filter((d) => d.kind === 'object');
+  assert.deepEqual(near.map((d) => (d as { id: number }).id).sort(), [3]);
+  assert.equal(buildDrawables(s, null).sorted.filter((d) => d.kind === 'object').length, 4);
+  // something standing just below the window's bottom edge still shows if its top can reach into it
+  assert.ok(inWindow(win, { x: 136, y: 136, w: 1, h: 1 }));
+  assert.ok(!inWindow(win, { x: 136, y: 136, w: 1, h: 1 }, 0));
+  // roofs in the roof view are only made for the window's cells
+  const room = run(fresh(big), { type: 'select', id: 'plaster' }, { type: 'setWallMode', mode: 'square' }, ...drag([0.5, 0.5], [255.5, 255.5]));
+  const roofs = buildDrawables({ ...room.state, level: 1 }, win).sorted.filter((d) => d.kind === 'roof');
+  assert.ok(roofs.length > 0 && roofs.length < 2000, `roofs ${roofs.length}`);
+  roofs.forEach((r) => assert.ok(inWindow(win, r)));
+}
+ok('with a window, only what can show in it is built and sorted (objects, roofs), and tall things just below still count');

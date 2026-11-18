@@ -1,6 +1,6 @@
 // Pure: turns State into a depth-sorted list of things to draw, with previews merged in.
 import { type FenceLook, type GlassLook, getItem, getOpeningDef, getPaint, getObjectDef, getTileDef, getWallStyle, isFlat, isPole, isSmart, isWaterTile, layerOf, occupiedCells } from '../catalog';
-import { CUT_WALL_H, WALL_H } from '../config';
+import { CUT_WALL_H, TILE_H, TILE_W, WALL_H } from '../config';
 import { depthSort } from '../depthSort';
 import { type Cell, type Edge, type Rect, cellKey, cellsOf, edgeKey, edgeRect } from '../geometry';
 import type { WallPiece } from './shapes';
@@ -170,7 +170,32 @@ export const gridAlpha = (state: State): number =>
 // A wall drawn low lets you see the floor on its far side
 export const isCutLow = (state: State, wall: WallSegment): boolean => wallHeight(state, wall) < WALL_H;
 
-export const buildDrawables = (state: State) => {
+// ===== Drawing only what is on screen =====
+// A window on the world in unscaled screen pixels (the world container's own coordinates). A big map
+// draws only what lies in the window, so it costs about the same as the part being looked at.
+export type ScreenWindow = Readonly<{ left: number; right: number; top: number; bottom: number }>;
+const RISE = 260; // how far anything standing may reach above its footprint on screen (tall trees, roofs)
+
+// Whether a footprint, plus whatever stands on it, can show in the window
+export const inWindow = (win: ScreenWindow | null, r: Rect, rise = RISE): boolean =>
+  win === null ||
+  ((r.x - r.y - r.h) * (TILE_W / 2) < win.right &&
+    (r.x + r.w - r.y) * (TILE_W / 2) > win.left &&
+    (r.x + r.y) * (TILE_H / 2) - rise < win.bottom &&
+    (r.x + r.w + r.y + r.h) * (TILE_H / 2) > win.top);
+
+// The cells a window can show, as a rectangle of the map (a quick bound before testing each one)
+const cellsInWindow = (win: ScreenWindow | null, size: Readonly<{ w: number; h: number }>): readonly Cell[] => {
+  if (win === null) return cellsOf({ x: 0, y: 0, w: size.w, h: size.h });
+  // u = x - y and v = x + y in tile units bound the window; x and y follow from them
+  const [u0, u1] = [win.left / (TILE_W / 2) - 1, win.right / (TILE_W / 2) + 1];
+  const [v0, v1] = [win.top / (TILE_H / 2) - 2, (win.bottom + RISE) / (TILE_H / 2) + 1];
+  const x0 = Math.max(0, Math.floor((u0 + v0) / 2)), x1 = Math.min(size.w, Math.ceil((u1 + v1) / 2));
+  const y0 = Math.max(0, Math.floor((v0 - u1) / 2)), y1 = Math.min(size.h, Math.ceil((v1 - u0) / 2));
+  return cellsOf({ x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) }).filter((c) => inWindow(win, { ...c, w: 1, h: 1 }));
+};
+
+export const buildDrawables = (state: State, win: ScreenWindow | null = null) => {
   const roof = isRoofView(state);
   const interior = interiorCells(state.walls, state.size);
   const inside = (c: Cell) => interior.has(cellKey(c));
@@ -183,7 +208,7 @@ export const buildDrawables = (state: State) => {
     [cellKey(w), cellKey(far)].forEach((k) => ends.set(k, (ends.get(k) ?? 0) + 1));
   });
 
-  const walls: readonly WallDrawable[] = [...wallLooks(state).values()].map(({ wall, alpha, color }) => ({
+  const walls: readonly WallDrawable[] = [...wallLooks(state).values()].filter(({ wall }) => inWindow(win, edgeRect(wall))).map(({ wall, alpha, color }) => ({
     kind: 'wall',
     ...edgeRect(wall),
     axis: wall.axis,
@@ -201,17 +226,20 @@ export const buildDrawables = (state: State) => {
   // The room under the pointer fades, so you can see what you are placing under it.
   const covered = canopyCells(state.walls, state.size);
   const under = state.hover ? covered.get(cellKey(state.hover)) : undefined;
-  const canopies: readonly CanopyDrawable[] = [...covered].map(([key, room]) => {
-    const [x = 0, y = 0] = key.split(',').map(Number);
-    return { kind: 'canopy', x, y, w: 1, h: 1, color: CANOPY_COLOR, alpha: room === under ? 0.3 : 1 };
-  });
+  const canopies: readonly CanopyDrawable[] = [...covered]
+    .map(([key, room]): CanopyDrawable => {
+      const [x = 0, y = 0] = key.split(',').map(Number);
+      return { kind: 'canopy', x, y, w: 1, h: 1, color: CANOPY_COLOR, alpha: room === under ? 0.3 : 1 };
+    })
+    .filter((c) => inWindow(win, c));
   const roofs: readonly RoofDrawable[] = roof
-    ? cellsOf({ x: 0, y: 0, w: state.size.w, h: state.size.h })
+    ? cellsInWindow(win, state.size)
         .filter((c) => inside(c) && !covered.has(cellKey(c)))
         .map((c) => ({ kind: 'roof', x: c.x, y: c.y, w: 1, h: 1 }))
     : [];
 
   const placed: readonly ObjectDrawable[] = state.objects
+    .filter((o) => inWindow(win, o))
     .filter((o) => !roof || !occupiedCells(o).some(inside)) // objects in enclosed rooms are under the roof
     .map((o) => ({ ...o, kind: 'object', alpha: 1 }));
   // flat ground pieces (roads, bays) lie under everything that stands, so they skip the depth sort

@@ -20,13 +20,17 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 
 | File | Layer | What it holds |
 | --- | --- | --- |
-| `src/config.ts` | core | Constants: tile size, `GRID_W`/`GRID_H` (64), wall heights, levels, feature flags |
+| `src/config.ts` | core | Constants: tile size, map size limits (`DEFAULT_GRID` 64, `MIN_GRID` 16, `MAX_GRID` 256), wall heights, levels, feature flags |
 | `src/geometry.ts` | core | `Cell`, `Point`, `Rect`, `Edge` (walls sit on grid edges, `axis` x or y), screen projection, cell/edge helpers |
 | `src/catalog.ts` | core | Every item as data: objects (boxes, or flat `marks` lying on the ground), floors/paths/water tiles, wall styles, openings, paints. Categories > groups (tray tabs) > items. Helpers like `marksOf`, `occupiedCells`, `layerOf`, `isFlat`, `isRun`, `isSmart` |
 | `src/world.ts` | core | `State`, `Action`, `initialState`, `update`, and all placement rules (`objectCandidate`, `buildPlan`, `canPlaceObject`, wall/opening/paint/fill/culvert plans, bulldoze, select, copy/paste, blueprints) |
 | `src/history.ts` | core | Undo/redo around `update` (`step`, `initialHistory`) |
 | `src/view.ts` | core | Quarter turns of state, points, cells, edges, pieces between world and view space |
-| `src/depthSort.ts` | core | Draw order for multi-tile objects |
+| `src/depthSort.ts` | core | Draw order for multi-tile objects (bucketed by screen column, so it scales to a full 256x256 map) |
+| `src/camera.ts` | core | Pan and zoom limits as plain numbers: `clampCamera`, `minZoom`, `startCamera` |
+| `src/session.ts` | core | The game being played, apart from undo: `Session`, `isDirty`, free names, relative times, the chip's state text |
+| `src/pieceCodec.ts` | shell edge | Piece-by-piece validators shared by blueprint and game storage |
+| `src/saveStore.ts` | shell edge | Saved games in `localStorage`: one key per game plus an index, run-length tiles, forgiving `decodeGame`, `writeGame` returns `'ok'` or `'full'` |
 | `src/blueprintStore.ts` | shell edge | Versioned, validated blueprint storage in `localStorage` (the model for any future save format) |
 | `src/input.ts` | shell | Pointer and keyboard to actions |
 | `src/main.ts` | shell | Composition root: Pixi app, camera, dispatch loop |
@@ -34,6 +38,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 | `src/render/scene.ts` | shell | Pixi layers (ground, flats, solids, overlays) and the build/select overlays |
 | `src/render/draw.ts`, `shapes.ts` | shell | Drawing primitives: boxes, walls, poles, arches, marks, medians |
 | `src/render/hud.ts` | shell | DOM HUD: category bar, tray, tool chip, filters, blueprint tray, help |
+| `src/render/gameMenu.ts` | shell | Game chip, Game panel, New game and save-first dialogs; owns Esc and Ctrl+S while anything is open |
 | `src/render/icons.ts` | shell | Tray icons rendered from the game's own drawing |
 
 ## Things that are easy to get wrong
@@ -42,7 +47,9 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 - **Placement of objects** goes through `buildPlan` (which may replace road pieces). Paste, blueprints and group drops use the strict `canPlaceObject`.
 - **Drags** (`state.drag`) have modes; painting drags fill gaps with `cellsBetween`. A drag is one undo step.
 - **Rotation** (R) belongs to the world and persists across item picks.
-- **Grid size** is still the constants `GRID_W`/`GRID_H` (todo #15 moves it into the world). `view.ts` assumes a square grid today.
+- **Map size** is `State.size` (a `Size` from `sizeOf(w, h)`, one object per size, so compare sizes by identity). In a view the state's size is that view's frame: on a non-square map width and height swap on odd views. Bounds helpers take the size (`cellInBounds(s.size, c)`), and so do `interiorCells` and `canopyCells`. `pointToView`/`pointFromView` take the world size; `guideFromView` takes the view's frame.
+- **Drawing only what is on screen.** `main.ts` keeps a drawn window (the screen plus half a screen around it) and `scene.render(seen, window)` builds, sorts and draws only what can show in it (`inWindow` in `drawables.ts`, which allows tall things below the window to reach into it). Anything new that is drawn per piece must go through that filter, or a big map gets slow again.
+- **Saves** write the committed world (`history.committed` plus size and facing), never the state mid-drag. A change to what a save holds bumps the save version in `saveStore.ts` and adds an upgrade step so older saves still load.
 
 ## Checks
 

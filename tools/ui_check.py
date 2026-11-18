@@ -36,6 +36,76 @@ CHIP = """(names) => {
   return bad;
 }"""
 
+# What the general sweep cannot say about the game chip, panel and dialogs: they stay on screen, the
+# chip's name keeps to its width (an ellipsis is fine, a spill is not), and nothing lies on top of the chip
+GAME = """() => {
+  const bad = [], q = (s) => document.querySelector(s), rect = (e) => e.getBoundingClientRect();
+  const chip = q('#game-chip'), name = q('.game-name'), narrow = innerWidth <= 420;
+  const c = rect(chip);
+  if (c.left < 0 || c.right > innerWidth + 0.5) bad.push('game chip off screen');
+  if (name.getBoundingClientRect().width > (narrow ? 140 : 220) + 1) bad.push('game name wider than its limit');
+  if (narrow && getComputedStyle(q('.game-state')).display !== 'none') bad.push('state text shows on a narrow phone');
+  if (narrow && getComputedStyle(q('.game-dot')).display === 'none') bad.push('no dot on a narrow phone');
+  const status = q('#status'); if (status && rect(status).top < c.bottom - 0.5) bad.push('status is not below the chip');
+  const panel = q('#game-panel');
+  if (panel && !panel.hidden) {
+    const p = rect(panel);
+    if (p.top < c.bottom - 0.5) bad.push('panel overlaps the chip');
+    if (p.right > innerWidth + 0.5 || p.left < 0 || p.bottom > innerHeight + 0.5) bad.push('panel off screen');
+    const list = q('.game-list'); if (list && rect(list).height > 330) bad.push('list taller than about six rows');
+    for (const e of panel.querySelectorAll('button, select, input')) { const r = rect(e); if (r.width && (r.right > p.right + 0.5 || r.left < p.left - 0.5)) bad.push('panel control sticks out: ' + (e.className || e.tagName)); }
+  }
+  for (const d of document.querySelectorAll('.game-dialog')) {
+    const r = rect(d);
+    for (const e of d.querySelectorAll('button, input, h2, p, .game-shape, .game-error')) { const x = rect(e); if (x.width && (x.right > r.right + 0.5 || x.left < r.left - 0.5)) bad.push('dialog item sticks out: ' + (e.className || e.tagName)); }
+  }
+  return bad;
+}"""
+
+def game_sweep(b, width):
+    """Opens the game chip, panel and dialogs in the states a player can reach, with a long name."""
+    problems, states = [], 0
+    pg = b.new_page(viewport={"width": width, "height": 800}); pg.goto(URL); pg.wait_for_timeout(1500)
+    def check(where):
+        nonlocal states; states += 1
+        problems.extend(f"{m}  [game: {where}]" for m in pg.evaluate(CHECK) + pg.evaluate(GAME))
+    long_name = "W" * 40
+    check("chip")
+    pg.click("#game-chip"); check("panel, no saves")
+    pg.click(".game-action:has-text('Save as')"); check("save as row")
+    pg.fill(".game-saveas .game-input", long_name); pg.keyboard.press("Enter"); pg.wait_for_timeout(100); check("long name, saved")
+    for i in range(7):   # more than six rows, so the list scrolls
+        pg.click(".game-action:has-text('Save as')"); pg.fill(".game-saveas .game-input", f"Town number {i} " + "m" * 30); pg.keyboard.press("Enter")
+    pg.wait_for_timeout(100); check("panel, 8 saves")
+    pg.locator(".game-icon[aria-label^='Rename']").first.click(); check("rename in place"); pg.keyboard.press("Escape")
+    pg.locator(".game-icon.remove").last.click(); check("delete armed")
+    pg.click(".game-action:has-text('New game')"); check("new game")
+    pg.fill(".game-dialog .game-number >> nth=0", ""); check("new game, empty width")
+    pg.fill(".game-dialog .game-number >> nth=0", "300"); check("new game, width too big")
+    pg.click(".game-squares .game-action:has-text('256')"); pg.fill(".game-dialog .game-number >> nth=1", "16"); check("new game, 256 by 16")
+    pg.keyboard.press("Escape"); pg.keyboard.press("Escape"); check("closed again")
+    # something unsaved: build one object, so the chip warns and New game asks first
+    pg.click(".category:has-text('Scenery')"); pg.locator(".item").first.click(); pg.mouse.click(width // 2, 380); pg.wait_for_timeout(100)
+    check("unsaved changes")
+    pg.click("#game-chip"); pg.click(".game-action:has-text('New game')"); pg.click(".game-dialog .game-primary:has-text('Start')"); pg.wait_for_timeout(100)
+    check("save first prompt")
+    pg.evaluate("() => { Storage.prototype.setItem = () => { throw new Error('quota') } }")
+    pg.click(".game-dialog.prompt .game-primary"); pg.wait_for_timeout(100); check("prompt, storage full")
+    pg.keyboard.press("Escape"); pg.keyboard.press("Escape"); pg.keyboard.press("Escape"); check("chip, storage full")
+    pg.close()
+    # a game with pieces the catalog no longer knows: the chip says how many were left out
+    pg2 = b.new_page(viewport={"width": width, "height": 800}); pg2.goto(URL); pg2.wait_for_timeout(800)
+    pg2.evaluate("""() => {
+      const bad = { defId: 'gone', x: 1, y: 1, w: 1, h: 1, rotation: 0, id: 1 };
+      localStorage.setItem('iso-sandbox:saves', JSON.stringify({ version: 1, saves: [{ id: 1, name: 'Old town', w: 64, h: 64, savedAt: Date.now() }] }));
+      localStorage.setItem('iso-sandbox:save:1', JSON.stringify({ version: 1, w: 64, h: 64, rotation: 0, nextId: 1, objects: [bad, bad, bad], walls: [], culverts: [], tiles: { palette: [], runs: [] } }));
+    }""")
+    pg2.reload(); pg2.wait_for_timeout(1200)
+    if "Loaded, 3 pieces left out" not in pg2.text_content("#game-chip"): problems.append(f"no notice after loading a save with pieces left out [game: notice] got {pg2.text_content('#game-chip')!r}")
+    problems.extend(f"{m}  [game: notice]" for m in pg2.evaluate(CHECK) + pg2.evaluate(GAME)); states += 1
+    pg2.close()
+    return problems, states
+
 def check_width(width):
     problems, names, states = [], set(), 0
     with sync_playwright() as p:
@@ -57,6 +127,8 @@ def check_width(width):
         pg.keyboard.press("v"); pg.click(".tool-button:has-text('Bulldoze')"); check("bulldoze")
         pg.click(".help-toggle"); check("help")
         problems.extend(f"chip {m}" for m in pg.evaluate(CHIP, sorted(names)))
+        pg.close()  # one busy page per width at a time: the software renderer is slow enough already
+        more, n = game_sweep(b, width); problems.extend(more); states += n
         b.close()
     return width, states, len(names), sorted(set(problems))
 

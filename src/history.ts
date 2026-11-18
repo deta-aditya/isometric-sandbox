@@ -1,7 +1,7 @@
 // Undo/redo as a pure layer around the world update. Only the world (what is built) is recorded,
 // never UI state, so undo does not touch the tool, tray, floor or camera.
 import { edgeKey } from './geometry';
-import { type Action, type State, initialState, settle, update } from './world';
+import { type Action, type GameWorld, type State, initialState, replaceWorld, settle, update } from './world';
 
 export type World = Pick<State, 'objects' | 'tiles' | 'walls' | 'culverts' | 'nextId'>;
 
@@ -12,11 +12,12 @@ export type History = Readonly<{
   state: State;
 }>;
 
-export type HistoryAction = Action | { type: 'undo' } | { type: 'redo' };
+// replaceWorld swaps in a whole new world (new game or load) and starts the history afresh
+export type HistoryAction = Action | { type: 'undo' } | { type: 'redo' } | { type: 'replaceWorld'; world: GameWorld };
 
 const LIMIT = 100;
 
-const worldOf = (s: State): World => ({ objects: s.objects, tiles: s.tiles, walls: s.walls, culverts: s.culverts, nextId: s.nextId });
+export const worldOf = (s: State): World => ({ objects: s.objects, tiles: s.tiles, walls: s.walls, culverts: s.culverts, nextId: s.nextId });
 
 // Order-independent fingerprint, so lifting an object and putting it back counts as no change
 const fingerprint = (w: World): string =>
@@ -27,7 +28,7 @@ const fingerprint = (w: World): string =>
     w.culverts.map(edgeKey).sort().join('|'),
   ].join('#');
 
-const sameWorld = (a: World, b: World): boolean =>
+export const sameWorld = (a: World, b: World): boolean =>
   (a.objects === b.objects && a.tiles === b.tiles && a.walls === b.walls && a.culverts === b.culverts) || fingerprint(a) === fingerprint(b);
 
 // A change is only committed once nothing is in progress: no drag, nothing being carried.
@@ -66,6 +67,10 @@ export const step = (h: History, action: HistoryAction): History => {
         future: h.future.slice(1),
         state: restore(h.state, next),
       };
+    }
+    case 'replaceWorld': {
+      const state = replaceWorld(h.state, action.world);
+      return { past: [], committed: worldOf(state), future: [], state };
     }
     default: {
       const state = update(h.state, action);

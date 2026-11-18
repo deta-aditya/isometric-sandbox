@@ -3,20 +3,27 @@
 from playwright.sync_api import sync_playwright
 CHECK = """() => {
   const out = [];
-  const els = document.querySelectorAll('#bar *, #tray *, #status, #help *');
+  const els = document.querySelectorAll('#bar *, #tray *, #status, #help *, #game-chip, #game-chip *, #game-panel, #game-panel *, .game-dialog, .game-dialog *');
   for (const el of els) {
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || el.offsetParent === null) continue;
     const label = (el.className || el.tagName) + ' "' + (el.textContent || '').trim().slice(0, 24) + '"';
-    if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'auto') out.push('clipped x: ' + label + ` ${el.scrollWidth}>${el.clientWidth}`);
+    // a text cut with an ellipsis on purpose (a long game name) is clipped by design; it is checked by size elsewhere
+    if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'auto' && cs.textOverflow !== 'ellipsis' && el.tagName !== 'INPUT') out.push('clipped x: ' + label + ` ${el.scrollWidth}>${el.clientWidth}`);
     if (el.scrollHeight > el.clientHeight + 1 && cs.overflowY !== 'auto' && el.tagName !== 'IMG') out.push('clipped y: ' + label + ` ${el.scrollHeight}>${el.clientHeight}`);
     // text nodes poking outside their own element
     for (const n of el.childNodes) {
       if (n.nodeType !== 3 || !n.textContent.trim()) continue;
       const r = document.createRange(); r.selectNodeContents(n);
       const t = r.getBoundingClientRect(), b = el.getBoundingClientRect();
-      if (t.right > b.right + 1 || t.left < b.left - 1 || t.bottom > b.bottom + 1) out.push('text outside: ' + label);
+      if ((cs.textOverflow !== 'ellipsis' && (t.right > b.right + 1 || t.left < b.left - 1)) || t.bottom > b.bottom + 1) out.push('text outside: ' + label);
     }
+  }
+  // the game chip, panel and dialogs must lie fully on screen
+  for (const el of document.querySelectorAll('#game-chip, #game-panel, .game-dialog')) {
+    if (!el.offsetParent && getComputedStyle(el).position !== 'fixed') continue;
+    const r = el.getBoundingClientRect(); if (r.width === 0) continue;
+    if (r.left < -0.5 || r.right > innerWidth + 0.5 || r.top < -0.5 || r.bottom > innerHeight + 0.5) out.push((el.id || el.className) + ' off screen');
   }
   for (const id of ['bar', 'tray']) {   // containers themselves: nothing may stick out of them
     const box = document.getElementById(id); if (!box || !box.offsetParent) continue;
@@ -33,12 +40,16 @@ CHECK = """() => {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     if (!n.textContent.trim() || !n.parentElement || !n.parentElement.offsetParent) continue;
-    if (!n.parentElement.closest('#bar, #tray, #status, #help')) continue;
+    if (!n.parentElement.closest('#bar, #tray, #status, #help, #game-chip, #game-panel, .game-dialog')) continue;
     const r = document.createRange(); r.selectNodeContents(n);
-    for (const t of r.getClientRects()) {
+    // text cut with an ellipsis shows only what is inside its own box
+    let cut = null; for (let a = n.parentElement; a && a !== document.body; a = a.parentElement) if (getComputedStyle(a).textOverflow === 'ellipsis') { cut = a.getBoundingClientRect(); break; }
+    for (const raw of r.getClientRects()) {
+      const t = cut ? { left: Math.max(raw.left, cut.left), right: Math.min(raw.right, cut.right), top: raw.top, bottom: raw.bottom } : raw;
       for (let a = n.parentElement; a && a !== document.body; a = a.parentElement) {
         const cs = getComputedStyle(a);
         if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        if (cs.textOverflow === 'ellipsis') continue; // cut with an ellipsis on purpose
         const b = a.getBoundingClientRect();
         const scrollsX = cs.overflowX === 'auto' || cs.overflowX === 'scroll';
         const scrollsY = cs.overflowY === 'auto' || cs.overflowY === 'scroll';

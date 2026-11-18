@@ -16,7 +16,10 @@ body {
 #bar,
 #tray,
 #status,
-#help {
+#help,
+#game-chip,
+#game-panel,
+.game-dialog {
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid #334155;
   border-radius: 12px;
@@ -388,8 +391,8 @@ kbd {
 /* ---------- Status and help ---------- */
 #status {
   position: fixed;
-  top: 12px;
-  left: 12px;
+  top: calc(var(--edge) + 38px); /* directly below the game chip (its 32px and a gap) */
+  left: var(--edge);
   padding: 4px 10px;
   font-size: 12px;
   color: #94a3b8;
@@ -538,11 +541,6 @@ kbd {
 
   .floors .floor .short {
     display: inline;
-  }
-
-  #status {
-    top: var(--edge);
-    left: var(--edge);
   }
 
   #help {
@@ -784,5 +782,411 @@ kbd {
 
   .turn-button:first-child {
     display: none;
+  }
+}
+
+/* ---------- Game chip, Game panel and dialogs ---------- */
+#game-chip {
+  position: fixed;
+  top: var(--edge);
+  left: var(--edge);
+  z-index: 10;
+  box-sizing: border-box;
+  height: 32px;
+  max-width: calc(100vw - 2 * var(--edge));
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 10px;
+  font-size: 12px;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+#game-chip:hover,
+#game-chip.open {
+  background: #1e293b;
+}
+
+#game-chip svg {
+  flex: none;
+}
+
+.game-name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.game-state {
+  flex: none;
+  white-space: nowrap;
+  color: #94a3b8;
+}
+
+.game-dot {
+  display: none;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+
+#game-chip[data-state='unsaved'] .game-dot,
+#game-chip[data-state='problem'] .game-dot {
+  display: block;
+}
+
+#game-chip[data-state='unsaved'] .game-dot {
+  background: #f59e0b;
+}
+
+#game-chip[data-state='problem'] .game-dot {
+  background: #ef4444;
+}
+
+#game-chip[data-state='problem'] .game-state {
+  color: #fca5a5;
+}
+
+#game-chip[data-state='notice'] .game-state {
+  color: #93c5fd;
+}
+
+.game-chevron {
+  flex: none;
+  display: flex;
+  color: #94a3b8;
+}
+
+#game-chip.open .game-chevron {
+  transform: rotate(180deg);
+}
+
+#game-panel {
+  position: fixed;
+  top: calc(var(--edge) + 38px);
+  left: var(--edge);
+  z-index: 20;
+  box-sizing: border-box;
+  width: 340px;
+  max-width: calc(100vw - 2 * var(--edge));
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+#game-panel[hidden] {
+  display: none;
+}
+
+.game-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.game-primary,
+.game-action,
+.game-load {
+  padding: 6px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  border-color: #334155;
+}
+
+.game-primary {
+  color: #eff6ff;
+  background: #1d4ed8;
+  border-color: #3b82f6;
+}
+
+.game-primary:hover {
+  background: #2563eb;
+}
+
+.game-load {
+  flex: none;
+  padding: 4px 10px;
+}
+
+.game-saveas {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.game-saveas[hidden] {
+  display: none;
+}
+
+.game-saveas-fields {
+  display: flex;
+  gap: 6px;
+}
+
+.game-input {
+  box-sizing: border-box;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 1px solid #475569;
+  border-radius: 6px;
+}
+
+.game-input:focus {
+  outline: none;
+  border-color: #60a5fa;
+}
+
+.game-saveas-fields .game-input {
+  flex: 1;
+}
+
+.game-label {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 312px; /* about six rows, then it scrolls */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.game-empty {
+  padding: 10px 4px;
+  color: #94a3b8;
+}
+
+.game-row {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+.game-row.current {
+  background: #172554;
+  border-color: #3b82f6;
+}
+
+.game-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.game-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.game-row.renaming .game-title,
+.game-row.renaming .game-sub {
+  display: none;
+}
+
+.game-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #cbd5e1;
+}
+
+.game-icon.remove.armed {
+  color: #fff;
+  background: #dc2626;
+  border-color: #fca5a5;
+}
+
+.game-autosave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #334155;
+}
+
+.game-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 1px solid #475569;
+  border-radius: 6px;
+}
+
+.game-error {
+  color: #f87171;
+  font-size: 12px;
+}
+
+.game-error[hidden] {
+  display: none;
+}
+
+.game-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--edge);
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.game-dialog {
+  box-sizing: border-box;
+  width: 360px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.game-dialog-title {
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.game-body {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.game-hint {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.game-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.game-field-label {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.game-sizes {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.game-size-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-size-fields {
+  display: flex;
+  gap: 8px;
+}
+
+.game-number {
+  width: 84px;
+}
+
+.game-squares {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.game-squares .game-action {
+  padding: 3px 8px;
+}
+
+.game-shape {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 48px;
+  margin-top: 16px;
+}
+
+.game-shape-box {
+  background: #4ade80;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.game-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 420px) {
+  .game-name {
+    max-width: 140px;
+  }
+
+  /* the state is only its dot on very narrow phones, shown for every state */
+  .game-state {
+    display: none;
+  }
+
+  #game-chip .game-dot,
+  #game-chip[data-state='unsaved'] .game-dot,
+  #game-chip[data-state='problem'] .game-dot {
+    display: block;
   }
 }

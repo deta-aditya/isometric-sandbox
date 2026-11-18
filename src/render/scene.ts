@@ -33,7 +33,7 @@ import {
 } from '../world';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
-import { type Drawable, HOVER_COLOR, SELECTED_COLOR, buildDrawables, culvertEnds, gridAlpha, waterLookup, waterSides } from './drawables';
+import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
 import { drawBox, drawCulvertBank, drawEdgeStrip, drawFootprint, drawGridLines, drawGround, drawTile, drawVertex, drawWall, drawWash, drawWaterTile, shade } from './shapes';
 
 const VALID = 0x4ade80;
@@ -61,9 +61,10 @@ const drawDrawable = (g: Graphics, d: Drawable): void => {
 };
 
 // Floors, water and culverts
-const drawFloorsInto = (g: Graphics, state: State, lines: number): void => {
-  const wet = waterLookup(state.tiles);
+const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null): void => {
+  const wet = waterLookup(state.tiles); // neighbors are looked up in all tiles, so banks stay right at the window's edge
   state.tiles.forEach((t) => {
+    if (!inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
     const { color, bank } = getTileDef(t.defId);
     if (bank !== undefined) drawWaterTile(g, t.x, t.y, color, bank, waterSides(wet, t.x, t.y));
     else drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
@@ -114,9 +115,15 @@ export const createScene = (world: Container) => {
     drawGridLines(gridLines, size.w, size.h);
   };
 
-  const drawFloors = (state: State): void => {
+  // Floors change far less often than the pointer moves: redrawn only when what they show changes
+  let floorsDrawn: Readonly<{ tiles: State['tiles']; culverts: State['culverts']; lines: number; win: ScreenWindow | null }> | null = null;
+  const drawFloors = (state: State, win: ScreenWindow | null): void => {
+    const lines = gridAlpha(state); // painted floors outline their tiles only while the grid shows
+    const f = floorsDrawn;
+    if (f && f.tiles === state.tiles && f.culverts === state.culverts && f.lines === lines && f.win === win) return;
+    floorsDrawn = { tiles: state.tiles, culverts: state.culverts, lines, win };
     floors.clear();
-    drawFloorsInto(floors, state, gridAlpha(state)); // painted floors outline their tiles only while the grid shows
+    drawFloorsInto(floors, state, lines, win);
   };
 
   // An object's footprint, or for a flat piece (a road curve) just the cells it stands on
@@ -271,12 +278,13 @@ export const createScene = (world: Container) => {
     }
   };
 
-  const render = (state: State): void => {
+  // win: the part of the world to draw (null draws all of it)
+  const render = (state: State, win: ScreenWindow | null = null): void => {
     drawGroundFor(state.size);
-    const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state);
+    const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state, win);
     gridLines.alpha = gridAlpha(state);
     gridLines.visible = gridLines.alpha > 0;
-    drawFloors(state);
+    drawFloors(state, win);
     flats.clear();
     flatPieces.forEach((d) => drawObject(flats, d));
     drawOverlay(state, ghostValid);

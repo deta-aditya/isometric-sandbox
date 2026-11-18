@@ -282,6 +282,32 @@ export const initialState: State = {
   view: 0,
 };
 
+// ===== Whole worlds (new game, save, load) =====
+// Everything a saved game holds: the map's size, what is built, and the build facing. Always in the
+// world's own (unturned) frame, never the turned view.
+export type GameWorld = Readonly<{
+  size: Size;
+  objects: readonly ObjectEntity[];
+  tiles: readonly Tile[];
+  walls: readonly WallSegment[];
+  culverts: readonly Edge[];
+  nextId: number;
+  rotation: Rotation;
+}>;
+
+export const emptyWorld = (size: Size): GameWorld => ({ size, objects: [], tiles: [], walls: [], culverts: [], nextId: 1, rotation: 0 });
+
+// Takes the world state (what history holds), not the turned view state
+export const gameWorldOf = (s: State): GameWorld => ({
+  size: s.size,
+  objects: s.objects,
+  tiles: s.tiles,
+  walls: s.walls,
+  culverts: s.culverts,
+  nextId: s.nextId,
+  rotation: s.rotation,
+});
+
 // ===== Enclosure =====
 // Rooms are not stored: a cell is "inside" when walls cut it off from the outside of the map.
 // Flood fill from beyond the map edge; every in-bounds cell it cannot reach is enclosed.
@@ -1375,6 +1401,25 @@ const pickFrom = (s: State, hit: EraseTarget): State => {
 
 // Finishes whatever is in progress the safe way: drops any drag, puts back anything held
 export const settle = (s: State): State => ({ ...putBack(s), drag: null });
+
+// A whole new world (new game or load): anything in progress is settled, then the world is swapped in.
+// What points into the old map goes (selection, drag, pointer, guides, which may lie off a smaller map);
+// the player's own settings stay (tool, tray, filters, wall view, grid, camera turn, clipboard, blueprints).
+export const replaceWorld = (s: State, w: GameWorld): State => ({
+  ...settle(s),
+  size: w.size,
+  objects: w.objects,
+  tiles: w.tiles,
+  walls: w.walls,
+  culverts: w.culverts,
+  nextId: w.nextId,
+  rotation: w.rotation,
+  selection: null,
+  drag: null,
+  hover: null,
+  point: null,
+  guides: [],
+});
 
 // Switching tools never loses a held item
 const switchTool = (s: State, tool: Tool): State => ({ ...putBack(s), tool, drag: null });

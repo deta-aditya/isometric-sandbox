@@ -156,8 +156,8 @@ export const bindInput = (
   });
 
   window.addEventListener('keydown', (e) => {
-    // Typing into a text field (a blueprint's name) is not a game shortcut
-    if (e.target instanceof HTMLInputElement) return;
+    // Typing into a text field (a blueprint's name) or using a drop-down is not a game shortcut
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     // Shift turns a bulldoze click into clearing the room under the cursor
     if (e.key === 'Shift') return dispatch({ type: 'setShift', held: true });
     // Ctrl (or Cmd) with Shift makes a fill spread over every floor or paint
