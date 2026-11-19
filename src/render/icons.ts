@@ -1,12 +1,13 @@
 // Icons are rendered from the catalog with the same drawing code as the game,
 // so every item (including new ones) gets an icon that matches what gets placed.
-import { Graphics, type Renderer } from 'pixi.js';
+import { Container, Graphics, type Renderer } from 'pixi.js';
 import { CATALOG, type CatalogItem, type OpeningDef, type OpeningLook, getOpeningDef, getTileDef, getWallStyle, isPiece } from '../catalog';
 import { CUT_WALL_H, WALL_H } from '../config';
-import { cellsOf, toScreen } from '../geometry';
+import { cellsOf, sizeOf, toScreen } from '../geometry';
+import { type State, initialState } from '../world';
+import { waterLayers } from './water';
 import { drawObject } from './draw';
-import { drawBox, drawCulvertBank, drawTile, drawWall, drawWaterTile, shade } from './shapes';
-import { waterSides } from './drawables';
+import { drawBox, drawTile, drawWall, shade } from './shapes';
 
 export type Icons = ReadonlyMap<string, string>; // item or tool id -> image data URL
 
@@ -77,21 +78,17 @@ const terrainPatch = (g: Graphics, color: number, specks: readonly number[] = []
   });
 };
 
-// A 2x2 pool of water, banked on every outer side, for water tile icons
-const waterPatch = (g: Graphics, color: number, bank: number): void => {
-  const wet = (x: number, y: number) => x >= 0 && x < 2 && y >= 0 && y < 2;
-  cellsOf({ x: 0, y: 0, w: 2, h: 2 }).forEach((c) => drawWaterTile(g, c.x, c.y, color, bank, waterSides(wet, c.x, c.y)));
+// Water icons are little scenes drawn the way the game draws water (sunken, see water.ts)
+const waterScene = (g: Graphics, size: number, tiles: readonly Readonly<{ x: number; y: number; defId: string }>[], culverts: State['culverts'] = []): Container => {
+  patch(g, size, size, GRASS);
+  return waterLayers({ ...initialState, size: sizeOf(size, size), tiles, culverts });
 };
-
+// A 2x2 pool in a patch of grass, for the canal and stream icons
+const waterPatch = (g: Graphics, id: string): Container =>
+  waterScene(g, 4, cellsOf({ x: 1, y: 1, w: 2, h: 2 }).map((c) => ({ ...c, defId: id })));
 // The end of a short canal with a culvert on its far bank
-const culvertPatch = (g: Graphics): void => {
-  const canal = getTileDef('canal');
-  const bank = canal.bank ?? 0;
-  const wet = (x: number, y: number) => x === 0 && y >= 0 && y < 2;
-  patch(g, 1, 3, GRASS);
-  [0, 1].forEach((y) => drawWaterTile(g, 0, y, canal.color, bank, waterSides(wet, 0, y)));
-  drawCulvertBank(g, 0, 0, 'north', bank, { start: true, end: true });
-};
+const culvertPatch = (g: Graphics): Container =>
+  waterScene(g, 3, [{ x: 1, y: 0, defId: 'canal' }, { x: 1, y: 1, defId: 'canal' }, { x: 1, y: 2, defId: 'canal' }], [{ axis: 'y', x: 1, y: 1 }]);
 
 // Fences show off better as a longer run than as a corner
 const PREVIEW_FENCE = 'picket-fence';
@@ -167,7 +164,7 @@ const spanPreview = (g: Graphics, item: OpeningDef): void => {
   );
 };
 
-const drawPreview = (g: Graphics, item: CatalogItem): void => {
+const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
   switch (item.kind) {
     case 'object':
       patch(g, item.w, item.h, GRASS);
@@ -179,7 +176,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): void => {
     case 'terrain':
       return terrainPatch(g, item.color, item.specks);
     case 'tile':
-      return item.bank === undefined ? patch(g, 2, 2, item.color) : waterPatch(g, item.color, item.bank);
+      return item.bank === undefined ? patch(g, 2, 2, item.color) : waterPatch(g, item.id);
     case 'wall':
       return wallCorner(g, item.id);
     case 'opening':
@@ -200,11 +197,15 @@ const drawBulldozer = (g: Graphics): void => {
   box(0.86, 0.06, 0.08, 0.86, 0, 14, 0x9ca3af); // blade
 };
 
-export const toDataUrl = (renderer: Renderer, draw: (g: Graphics) => void): string => {
+// draw paints into one Graphics, and may hand back layers to put on top of it (masked or picture
+// layers, like sunken water, cannot live in a single Graphics)
+export const toDataUrl = (renderer: Renderer, draw: (g: Graphics) => Container | void): string => {
   const g = new Graphics();
-  draw(g);
-  const canvas = renderer.extract.canvas({ target: g, resolution: 2, antialias: true }) as HTMLCanvasElement;
-  g.destroy();
+  const extra = draw(g);
+  const target = extra ? new Container() : g;
+  if (extra) (target as Container).addChild(g, extra);
+  const canvas = renderer.extract.canvas({ target, resolution: 2, antialias: true }) as HTMLCanvasElement;
+  target.destroy({ children: true });
   return canvas.toDataURL();
 };
 

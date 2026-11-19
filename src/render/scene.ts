@@ -3,7 +3,7 @@ import { Container, Graphics } from 'pixi.js';
 import { type Rotation, footprintOf, getItem, getTileDef, isFlat, isTerrain, getTerrainDef, occupiedCells } from '../catalog';
 import { brushCells, brushCircle } from '../brush';
 import { ROOF_T, WALL_H } from '../config';
-import { type Size, toScreen } from '../geometry';
+import { type Size, sizeOf, toScreen } from '../geometry';
 import { type Rect, nearestVertex } from '../geometry';
 import {
   type State,
@@ -35,7 +35,7 @@ import {
   cellInBounds,
 } from '../world';
 import { createTerrainLayer } from './terrainLayer';
-import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawStreamCulverts } from './water';
+import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawStreamCulverts, waterLayers } from './water';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
 import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
@@ -66,40 +66,38 @@ const drawDrawable = (g: Graphics, d: Drawable): void => {
 };
 
 // Floors, water and culverts
-// flatWater: draw water the old flat way (blueprint cards, which are too small for the sunken look);
-// in the game the canal has its own layers (water.ts) and the stream is part of the ground picture
-const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null, flatWater = false): void => {
-  const wet = waterLookup(state.tiles); // neighbors are looked up in all tiles, so banks stay right at the window's edge
+// Floors and paths (water is drawn sunken by its own layers: the canal in water.ts, the stream in the
+// ground picture)
+const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null): void => {
   state.tiles.forEach((t) => {
     if (!inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
     const { color, bank } = getTileDef(t.defId);
-    if (bank !== undefined) {
-      if (flatWater) drawWaterTile(g, t.x, t.y, color, bank, waterSides(wet, t.x, t.y));
-    } else drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
-  });
-  if (!flatWater) return;
-  // Culverts go on top of the water they belong to (one whose water was painted over just isn't shown)
-  state.culverts.forEach((e) => {
-    const b = bankOf(state, e);
-    const water = b && tileAt(state, b.cell);
-    if (!b || !water) return;
-    const { x, y } = b.cell;
-    drawCulvertBank(g, x, y, b.side, getTileDef(water.defId).bank ?? 0, culvertEnds(wet, x, y, b.side));
+    if (bank === undefined) drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
   });
 };
 
 // A set of pieces drawn on their own on a patch of grass, as the game would show them (for blueprint cards)
 const PREVIEW_GRASS = 0x4b8f55;
-export const drawPiecesPreview = (g: Graphics, base: State, p: Pieces): void => {
-  const state: State = { ...base, objects: p.objects, walls: p.walls, tiles: p.tiles, culverts: p.culverts, selection: null, drag: null, hover: null, point: null, tool: 'select', level: 0 };
+export const drawPiecesPreview = (g: Graphics, base: State, p: Pieces): Container => {
   const box = piecesBounds(p);
+  // the card's own small map, just big enough for its pieces, on the card's lighter grass
+  const size = sizeOf(Math.max(1, box.x + box.w), Math.max(1, box.y + box.h));
+  const state: State = { ...base, size, objects: p.objects, walls: p.walls, tiles: p.tiles, culverts: p.culverts, terrain: p.terrain, selection: null, drag: null, hover: null, point: null, tool: 'select', level: 0 };
   for (let x = box.x; x < box.x + box.w; x++) for (let y = box.y; y < box.y + box.h; y++) drawTile(g, x, y, PREVIEW_GRASS, shade(PREVIEW_GRASS, 0.85));
   // terrain on a card is flat tiles in its color (the soft blend needs the full renderer)
   p.terrain.forEach((t) => drawTile(g, t.x, t.y, getTerrainDef(t.defId).color, shade(getTerrainDef(t.defId).color, 0.85)));
-  drawFloorsInto(g, state, 1, null, true);
+  // in the game's order: water (the stream's ground picture blends the terrain in), then floors, then
+  // what stands
+  const water = waterLayers(state, PREVIEW_GRASS);
+  const floorsG = new Graphics();
+  drawFloorsInto(floorsG, state, 1);
+  const things = new Graphics();
   const { sorted, flats } = buildDrawables(state);
-  flats.forEach((d) => drawObject(g, d)); // roads and bays first, on the ground
-  sorted.forEach((d) => drawDrawable(g, d));
+  flats.forEach((d) => drawObject(things, d)); // roads and bays first, on the ground
+  sorted.forEach((d) => drawDrawable(things, d));
+  const out = new Container();
+  out.addChild(water, floorsG, things);
+  return out;
 };
 
 export const createScene = (world: Container) => {

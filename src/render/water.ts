@@ -8,13 +8,15 @@
 // coping along every bank and the corner posts lie at ground level, on top, outside the mask.
 //
 // Like everything else this works from the turned state: the far banks are always west and north.
-import type { Graphics } from 'pixi.js';
-import { getTileDef } from '../catalog';
+import { Container, Graphics } from 'pixi.js';
+import { getTerrainDef, getTileDef, isTerrain } from '../catalog';
 import { CANAL_DEPTH } from '../config';
 import type { State } from '../world';
 import { bankOf } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
 import { type P3, drawBox, poly, quad, shade } from './shapes';
+import { type TerrainLook } from './terrainField';
+import { createTerrainLayer } from './terrainLayer';
 
 const COP = 0.1; // coping width, in tiles
 const PIPE = 0x0e1422;
@@ -157,4 +159,27 @@ export const drawStreamCulverts = (g: Graphics, state: State, win: ScreenWindow 
       });
     }
   });
+};
+
+// All the water of a small state as its own layers, for pictures outside the game view (tray icons,
+// blueprint cards): the stream through the terrain layer, the canal through its masked layers. ground
+// sets the color around a stream (cards use a lighter grass than the game).
+export const waterLayers = (state: State, ground?: number): Container => {
+  const out = new Container();
+  if (state.tiles.some((t) => t.defId === 'stream')) {
+    const look = (id: string): TerrainLook | null =>
+      id === state.ground && ground !== undefined ? { color: ground } : isTerrain(id) ? getTerrainDef(id) : null;
+    const terrain = createTerrainLayer(look);
+    terrain.render(state, null);
+    out.addChild(terrain.container);
+  }
+  const sunk = new Graphics(), opening = new Graphics(), top = new Graphics(), box = new Container();
+  drawCanalSunk(sunk, state, null);
+  drawCanalOpening(opening, state, null);
+  drawCanalTop(top, state, null);
+  drawStreamCulverts(top, state, null);
+  box.addChild(sunk);
+  box.mask = opening;
+  out.addChild(box, opening, top);
+  return out;
 };
