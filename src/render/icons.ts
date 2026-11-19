@@ -55,8 +55,12 @@ export const squareIcon = (wallId: string): string => `square:${wallId}`;
 const GRASS = 0x4b8f55;
 const ICON_WALL = 0xe7e5e4;
 
-const patch = (g: Graphics, w: number, h: number, color: number): void =>
-  cellsOf({ x: 0, y: 0, w, h }).forEach((c) => drawTile(g, c.x, c.y, color, shade(color, 0.85)));
+// (a striped floor alternates its second color by column, as in the game)
+const patch = (g: Graphics, w: number, h: number, color: number, stripe?: number): void =>
+  cellsOf({ x: 0, y: 0, w, h }).forEach((c) => {
+    const k = stripe !== undefined && c.x % 2 === 1 ? stripe : color;
+    drawTile(g, c.x, c.y, k, shade(k, 0.85));
+  });
 
 // Terrain: a soft round patch of the item's color on a grass tile (rings fading out to the grass),
 // with a few specks on it for flowery grass. The game's own look is drawn elsewhere; this is the tray's.
@@ -182,7 +186,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
     case 'terrain':
       return terrainPatch(g, item.color, item.specks);
     case 'tile':
-      return item.bank === undefined ? patch(g, 2, 2, item.color) : waterPatch(g, item.id);
+      return item.bank === undefined ? patch(g, 2, 2, item.color, item.stripe) : waterPatch(g, item.id);
     case 'wall':
       return wallCorner(g, item.id);
     case 'opening':

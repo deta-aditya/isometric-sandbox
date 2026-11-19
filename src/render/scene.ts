@@ -34,6 +34,7 @@ import {
   terrainFill,
   cellInBounds,
 } from '../world';
+import { pointFromView, sizeInView } from '../view';
 import { createTerrainLayer } from './terrainLayer';
 import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawCulvertOpening, drawCulvertSunk, drawCulvertTops, drawJointOpening, drawJointSunk, drawJointTops, waterLayers } from './water';
 import { drawObject } from './draw';
@@ -68,11 +69,18 @@ const drawDrawable = (g: Graphics, d: Drawable): void => {
 // Floors, water and culverts
 // Floors and paths (water is drawn sunken by its own layers: the canal in water.ts, the stream in the
 // ground picture)
+// A tile's column in the world (the drawn state is turned to the camera's view)
+const worldColumn = (state: State, t: Readonly<{ x: number; y: number }>): number =>
+  Math.floor(pointFromView({ x: t.x + 0.5, y: t.y + 0.5 }, state.view, sizeInView(state.size, state.view)).x);
 const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null): void => {
   state.tiles.forEach((t) => {
     if (!inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
-    const { color, bank } = getTileDef(t.defId);
-    if (bank === undefined) drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
+    const { color, bank, stripe } = getTileDef(t.defId);
+    if (bank !== undefined) return;
+    // striped floors alternate by the tile's column in the world, so the rows keep their direction as
+    // the camera turns
+    const c = stripe !== undefined && worldColumn(state, t) % 2 === 1 ? stripe : color;
+    drawTile(g, t.x, t.y, c, shade(c, 0.85), lines);
   });
 };
 

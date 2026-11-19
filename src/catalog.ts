@@ -18,6 +18,7 @@ export type GroupId =
   | 'shrubs'
   | 'lamps'
   | 'waterside'
+  | 'sports'
   | 'office'
   | 'canteen'
   | 'lab'
@@ -31,6 +32,7 @@ export type GroupId =
   | 'narrow'
   | 'links'
   | 'markings'
+  | 'courts'
   | 'water'
   | 'walls'
   | 'doors'
@@ -59,6 +61,7 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'garden', name: 'Garden' }, // flowers first, then arches, the clock and statues
       { id: 'lamps', name: 'Lamps' },
       { id: 'waterside', name: 'Waterside' },
+      { id: 'sports', name: 'Sports' },
     ],
   },
   {
@@ -87,6 +90,7 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'narrow', name: 'Narrow roads' },
       { id: 'links', name: 'Road links' },
       { id: 'markings', name: 'Markings' },
+      { id: 'courts', name: 'Courts' },
       { id: 'water', name: 'Water' },
     ],
   },
@@ -168,7 +172,9 @@ export type ObjectDef = Base &
     refuge?: true;
   }>;
 // A tile with a bank color is water: it joins up with neighboring water and draws banks where it doesn't
-export type TileDef = Base & Readonly<{ kind: 'tile'; color: number; bank?: number }>;
+// stripe: a second color for every other tile, in rows that keep their direction in the world as the
+// camera turns (mowed grass)
+export type TileDef = Base & Readonly<{ kind: 'tile'; color: number; bank?: number; stripe?: number }>;
 // Terrain is the ground itself, one kind per tile, under floors, paths, water and roads. No entry means
 // plain grass (the `grass` item is the eraser). The look (soft blended edges) is drawn from the color.
 export type TerrainDef = Base & Readonly<{ kind: 'terrain'; color: number; specks?: readonly number[] }>;
@@ -501,6 +507,54 @@ const wideSharp = curve(WIDE, 1);
 const wideGentle = curve(WIDE, 4);
 const narrowSharp = curve(NARROW, 1);
 const narrowGentle = curve(NARROW, 4);
+
+
+// Sports court markings (#33): white lines only, painted over whatever floor is under them (a court
+// floor, the gym floor, asphalt, grass). A real court is 28 by 15 m; here it is 12 by 6 tiles, so lengths
+// along the court scale by CX and across by CY, and circles by CR (between the two). The court runs along
+// x; its baskets sit on the center line (y = 3) at each end.
+const CX = 12 / 28, CY = 6 / 15, CR = 0.41, CL = 0.07;
+const courtEnd = (bx: number, dir: 1 | -1): Mark[] => {
+  const x = (m: number) => bx + dir * m * CX;
+  const [k0, k1] = [Math.min(x(0), x(5.8)), Math.max(x(0), x(5.8))];
+  const [kTop, kBot] = [(7.5 - 2.45) * CY, (7.5 + 2.45) * CY];
+  const ft = x(5.8);
+  // the three-point line: straight along each side, 0.9 m in, then an arc about the basket
+  const bk = x(1.575), r = 6.75 * CR, side = 0.9 * CY, ang = Math.asin((3 - side) / r);
+  const xs = bk + dir * Math.cos(ang) * r;
+  const [c0, c1] = [Math.min(x(0), xs), Math.max(x(0), xs)];
+  const face = dir > 0 ? 0 : Math.PI; // toward the middle of the court
+  return [
+    rectMark(k0, kTop, k1, kTop + CL, ROAD_LINE),
+    rectMark(k0, kBot - CL, k1, kBot, ROAD_LINE),
+    rectMark(ft - CL / 2, kTop, ft + CL / 2, kBot, ROAD_LINE),
+    sector(ft, 3, 1.8 * CR - CL / 2, 1.8 * CR + CL / 2, face - Math.PI / 2, face + Math.PI / 2, ROAD_LINE),
+    rectMark(c0, side - CL / 2, c1, side + CL / 2, ROAD_LINE),
+    rectMark(c0, 6 - side - CL / 2, c1, 6 - side + CL / 2, ROAD_LINE),
+    sector(bk, 3, r - CL / 2, r + CL / 2, face - ang, face + ang, ROAD_LINE),
+  ];
+};
+// the outline of a court l long and 6 wide
+const courtOutline = (l: number): Mark[] => [
+  rectMark(0, 0, l, CL, ROAD_LINE), rectMark(0, 6 - CL, l, 6, ROAD_LINE),
+  rectMark(0, 0, CL, 6, ROAD_LINE), rectMark(l - CL, 0, l, 6, ROAD_LINE),
+];
+const COURTS: readonly ObjectDef[] = [
+  flat('marking', 'courts', 'basketball-court', 'Basketball court', 12, 6, [
+    ...courtOutline(12),
+    rectMark(6 - CL / 2, 0, 6 + CL / 2, 6, ROAD_LINE),
+    sector(6, 3, 1.8 * CR - CL / 2, 1.8 * CR + CL / 2, 0, Math.PI * 2, ROAD_LINE),
+    ...courtEnd(0, 1),
+    ...courtEnd(12, -1),
+  ]),
+  // half a court: one end, and half the center circle on its far line
+  flat('marking', 'courts', 'half-basketball-court', 'Half court', 6, 6, [
+    ...courtOutline(6),
+    sector(6, 3, 1.8 * CR - CL / 2, 1.8 * CR + CL / 2, Math.PI / 2, Math.PI * 1.5, ROAD_LINE),
+    ...courtEnd(0, 1),
+  ]),
+];
+
 
 const ITEMS: readonly CatalogItem[] = [
   // Scenery: decor
@@ -849,6 +903,20 @@ const ITEMS: readonly CatalogItem[] = [
     box(0.65, 0.65, 0.7, 0.7, 23, 3, 0xa8a29e), // upper bowl
     box(0.72, 0.72, 0.56, 0.56, 24, 3, 0x7dd3fc),
     box(0.94, 0.94, 0.12, 0.12, 26, 10, 0xbae6fd), // spout
+  ]),
+
+  // Scenery: sports (#33). A basketball hoop, 1 by 2 so it sits on a court's center line: a post on the
+  // baseline at the back (-x), an arm reaching over the court, a white backboard facing +x, and an orange
+  // rim with a white net hanging under it. Sized to the small 12 by 6 court rather than to real meters.
+  obj('sports', 'basketball-hoop', 'Basketball hoop', 1, 2, [
+    box(0.04, 0.84, 0.2, 0.32, 0, 2, 0x4b5563),
+    box(0.09, 0.94, 0.1, 0.12, 2, 23, 0x5b6470),
+    box(0.19, 0.96, 0.33, 0.08, 20, 2, 0x5b6470),
+    box(0.52, 0.62, 0.04, 0.76, 15, 11, 0xf4f4f0),
+    box(0.6, 0.94, 0.14, 0.12, 9, 6, 0xe5e7eb),
+    box(0.56, 0.9, 0.22, 0.03, 15, 1, 0xe0662a),
+    box(0.56, 1.07, 0.22, 0.03, 15, 1, 0xe0662a),
+    box(0.75, 0.9, 0.03, 0.2, 15, 1, 0xe0662a),
   ]),
 
   // Furniture: office (parts listed back to front, bottom to top)
@@ -1344,6 +1412,8 @@ const ITEMS: readonly CatalogItem[] = [
     { pts: [[2, 2.4], [2.6, 3.3], [1.4, 3.3]], color: BAY_YELLOW },
   ]),
 
+  ...COURTS,
+
   // Building: floors
   { kind: 'tile', group: 'floors', id: 'wood-floor', name: 'Wood floor', color: 0xd6b38a },
   { kind: 'tile', group: 'floors', id: 'stone-floor', name: 'Stone floor', color: 0xcbd5e1 },
@@ -1360,6 +1430,12 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'floors', id: 'gym-floor', name: 'Gym floor', color: 0x3e6db0 },
   { kind: 'tile', group: 'floors', id: 'blue-carpet', name: 'Blue carpet', color: 0x253f7a },
   { kind: 'tile', group: 'floors', id: 'grey-carpet', name: 'Grey carpet', color: 0x5f6b80 },
+  // sports floors (#33), colors chosen by measured distance from every floor, path, water and terrain
+  { kind: 'tile', group: 'floors', id: 'court-blue', name: 'Court blue', color: 0x3966bf },
+  { kind: 'tile', group: 'floors', id: 'court-green', name: 'Court green', color: 0x5a9f80 },
+  { kind: 'tile', group: 'floors', id: 'court-red', name: 'Court red', color: 0xc0504a },
+  { kind: 'tile', group: 'floors', id: 'mowed-grass', name: 'Mowed grass', color: 0x5fa04a, stripe: 0x4f8c3d },
+  { kind: 'tile', group: 'floors', id: 'turf-grass', name: 'Turf grass', color: 0x34a865 },
 
   // Terrain. `grass` is the eraser: painting it takes the terrain away, so the tile is plain grass again.
   { kind: 'terrain', group: 'grass', id: 'grass', name: 'Grass', color: 0x3a7d44 },
