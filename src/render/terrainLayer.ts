@@ -19,10 +19,25 @@ import { CHUNK, GROUND_KIND, REACH, type StreamPin, type TerrainGrid, type Terra
 const streamPins = (state: State): readonly StreamPin[] =>
   state.culverts.flatMap((e): StreamPin[] => {
     if (e.kind) {
+      // a canal outlet or inlet: its stream tile is lined with stone, so the water lies flat against the
+      // joint and against each wall (a wall stands where the next tile along is not part of the run), and
+      // an inlet's raised water draws the stream up toward it
       const cs = canalStreamOf(state, e);
       if (!cs) return [];
       const { stream: st, canal: c } = cs;
-      return [{ ...st, side: c.x < st.x ? 'west' : c.x > st.x ? 'east' : c.y < st.y ? 'north' : 'south' }];
+      const back: StreamPin['side'] = c.x < st.x ? 'west' : c.x > st.x ? 'east' : c.y < st.y ? 'north' : 'south';
+      const across = back === 'north' || back === 'south';
+      const inRun = (dx: number, dy: number) =>
+        state.culverts.some((o) => {
+          if (o.kind !== e.kind) return false;
+          const q = canalStreamOf(state, o);
+          return q !== null && q.stream.x === st.x + dx && q.stream.y === st.y + dy && q.canal.x === c.x + dx && q.canal.y === c.y + dy;
+        });
+      const sides: StreamPin['side'][] = [back, 'pool'];
+      if (!inRun(across ? -1 : 0, across ? 0 : -1)) sides.push(across ? 'west' : 'north');
+      if (!inRun(across ? 1 : 0, across ? 0 : 1)) sides.push(across ? 'east' : 'south');
+      if (e.kind === 'inlet') sides.push('raise');
+      return sides.map((side) => ({ ...st, side }));
     }
     // a culvert piece on a stream: the water lies flat against its back wall and its side walls
     const p = culvertShape(state, e);

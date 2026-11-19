@@ -30,4 +30,5 @@ export const ROOF_LEVEL = LEVELS.length - 1;
 // on a stream sits down (the stream bed itself reaches 16 px at its deepest, see terrainField.ts)
 export const CANAL_DEPTH = 11;
 export const STREAM_SINK = 13;
+export const INLET_RAISE = 3; // how far below the ground an inlet's raised stream water lies, in pixels
 export const STREAM_DEPTH = 16; // how far down the stream's deepest water shows, in pixels

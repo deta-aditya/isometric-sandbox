@@ -10,7 +10,7 @@
 // Like everything else this works from the turned state: the far banks are always west and north.
 import { Container, Graphics } from 'pixi.js';
 import { getTerrainDef, getTileDef, isTerrain } from '../catalog';
-import { CANAL_DEPTH, STREAM_DEPTH, STREAM_SINK } from '../config';
+import { CANAL_DEPTH, INLET_RAISE, STREAM_DEPTH } from '../config';
 import type { State } from '../world';
 import { type CulvertShape, canalStreamOf, culvertShape } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
@@ -59,7 +59,7 @@ export const canalJoints = (state: State): readonly Joint[] => {
     return { ...j, start: !has(px, py, j.side, j.kind), end: !has(nx, ny, j.side, j.kind) };
   });
 };
-const STREAM_WATER = 0x287888;
+const STREAM_WATER = 0x308398; // the stream's own water color in its middle (terrainField)
 const FOAM = 0xe2eef2;
 
 // The opening: every canal tile at ground level (the mask the sunken layer is seen through)
@@ -67,7 +67,8 @@ export const drawCanalOpening = (g: Graphics, state: State, win: ScreenWindow | 
   inView(state, win).forEach((t) => poly(g, quad({ x: t.x, y: t.y, w: 1, h: 1 }, 0), 0xffffff, 1));
 };
 
-// Below ground: the water, the far banks' wall faces and their shadow on the water, outlets and inlets
+// Below ground: the water, the far banks' wall faces and their shadow on the water, and the canal's side
+// of outlets and inlets
 export const drawCanalSunk = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   const cells = inView(state, win);
   if (cells.length === 0) return;
@@ -77,6 +78,8 @@ export const drawCanalSunk = (g: Graphics, state: State, win: ScreenWindow | nul
   const D = -CANAL_DEPTH;
   const joints = canalJoints(state);
   const open = (x: number, y: number, side: Side) => joints.some((j) => j.x === x && j.y === y && j.side === side);
+  // past a joint with the stream behind, the lined tile's water shows beyond the lip (under the canal's)
+  joints.forEach((j) => inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 0) && drawJointBeyond(g, j));
   cells.forEach(({ x, y }) => {
     poly(g, quad({ x, y, w: 1, h: 1 }, D), color, 1);
     if ((x + y) % 2 === 0) poly(g, quad({ x: x + 0.32, y: y + 0.52, w: 0.32, h: 0.04 }, D), shade(color, 1.32), 0.6);
@@ -95,32 +98,7 @@ export const drawCanalSunk = (g: Graphics, state: State, win: ScreenWindow | nul
       poly(g, [[x + COP, y, 0], [x + COP, y + COP, 0], [x + COP, y + COP, D], [x + COP, y, D]], shade(bank, 0.56), 1);
     }
   });
-  // Outlets and inlets. The stream's water carries on into the opening (seen past the edge), then:
-  // an outlet is a ribbed stone apron sloping from the canal's water down to the stream's at the edge;
-  // an inlet is a weir: on a far side, a sheet of water pours down the face from its lip into the canal,
-  // with foam at its foot (on a near side the face looks away, so only the foam shows)
-  const S = -STREAM_SINK;
-  joints.forEach((j) => {
-    if (!inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 0)) return;
-    const L = along(j.x, j.y, j.side);
-    const far = j.side === 'west' || j.side === 'north';
-    poly(g, [L(-1, 0, S), L(0, 0, S), L(0, 1, S), L(-1, 1, S)], STREAM_WATER, 1);
-    if (j.kind === 'outlet') {
-      poly(g, [L(0, 0, S), L(0, 1, S), L(0.55, 1, D), L(0.55, 0, D)], shade(bank, 0.92), 1);
-      [0.14, 0.28, 0.42].forEach((u) => {
-        const z = S + (D - S) * (u / 0.55);
-        poly(g, [L(u, 0.02, z), L(u, 0.98, z), L(u + 0.025, 0.98, z), L(u + 0.025, 0.02, z)], shade(bank, 0.7), 1);
-      });
-      poly(g, [L(0, 0.06, S), L(0, 0.94, S), L(0.55, 0.94, D), L(0.55, 0.06, D)], 0x4696c8, 0.42);
-    } else {
-      const lip = COP * 1.4;
-      if (far) {
-        poly(g, [L(lip, 0, -2), L(lip, 1, -2), L(lip, 1, D), L(lip, 0, D)], 0x96c8e1, 0.85);
-        [0.15, 0.37, 0.59, 0.81].forEach((v) => poly(g, [L(lip, v, -3), L(lip, v + 0.03, -3), L(lip, v + 0.12, D + 1), L(lip, v + 0.09, D + 1)], FOAM, 0.6));
-      }
-      poly(g, [L(far ? lip : 0.32, 0.04, D), L(far ? lip : 0.32, 0.96, D), L(0.5, 0.96, D), L(0.5, 0.04, D)], FOAM, 0.55);
-    }
-  });
+  joints.forEach((j) => inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 0) && drawJointInCanal(g, j));
 };
 
 // At ground level, on top: coping along every bank, a post on every land corner
@@ -138,27 +116,141 @@ export const drawCanalTop = (g: Graphics, state: State, win: ScreenWindow | null
     if (!w(x, y + 1) && !open(x, y, 'south')) poly(g, quad({ x, y: y + 1 - COP, w: 1, h: COP }, 0), bank, 1);
     if (!w(x + 1, y) && !open(x, y, 'east')) poly(g, quad({ x: x + 1 - COP, y, w: COP, h: 1 }, 0), bank, 1);
     ([[-1, -1, x, y], [1, -1, x + 1 - COP, y], [1, 1, x + 1 - COP, y + 1 - COP], [-1, 1, x, y + 1 - COP]] as const).forEach(([dx, dy, cx, cy]) => {
+      // no post in the middle of a joint (the corner lies on an open side, with canal along it)
+      const sx = dx < 0 ? 'west' : 'east', sy = dy < 0 ? 'north' : 'south';
+      if ((open(x, y, sx) && w(x, y + dy)) || (open(x, y, sy) && w(x + dx, y))) return;
       if (!w(x + dx, y + dy)) poly(g, quad({ x: cx, y: cy, w: COP, h: COP }, 0), bank, 1);
     });
   });
 };
 
-// Outlet and inlet stonework at ground level: an inlet's weir lip, and low wing walls along both ends of
-// a run, reaching from the canal's coping a little way along the stream's bank
-export const drawJointTops = (g: Graphics, state: State, win: ScreenWindow | null): void => {
-  const { bank = 0xa8a29e } = getTileDef('canal');
+// Canal outlets and inlets (#17f). The stream tile at a joint is lined with stone: its walls carry the
+// canal's own walls straight on (flush coping, one line from canal to stream) and end in a small post on
+// each side where the natural bank begins. A run of joints shares its walls, like culvert pieces: a wall
+// stands only where the next tile along is not part of the run. The water falls across the joint:
+//   outlet (canal into stream): the canal's end drops to a lip just above the canal's water, and the
+//     water falls into the lined tile at the stream's level, foaming on the stream;
+//   inlet (stream into canal): the stream is raised in the lined tile to just under the ground, held by
+//     a lip, and falls into the canal, foaming on the canal (the stream rises toward it: terrainField).
+// The falling face looks toward the low side, so it shows only when the low side is nearer the camera;
+// the foam always shows where the water lands.
+//
+// Everything is placed with along() from the canal cell: u = 0 is the joint, u > 0 the canal, u < 0 the
+// lined stream tile (u = -1 its open end); v runs along the joint.
+const LIP = 1.5; // a lip's top above the water it holds back
+const SHEET = 0x9fcde0;
+const jointLevels = (j: Joint) => {
+  const lined = j.kind === 'inlet' ? -INLET_RAISE : -STREAM_DEPTH;
+  const high = j.kind === 'inlet' ? lined : -CANAL_DEPTH, low = j.kind === 'inlet' ? -CANAL_DEPTH : lined;
+  // +u (the canal) is nearer the camera when the stream lies west or north of it
+  const streamFront = j.side === 'east' || j.side === 'south';
+  const lowFront = j.kind === 'inlet' ? !streamFront : streamFront;
+  return { lined, high, low, streamFront, lowFront };
+};
+
+// The lined tile's water and the inside face of its walls that looks toward the camera (+v always does)
+const drawLinedWater = (g: Graphics, j: Joint, bank: number) => {
+  const L = along(j.x, j.y, j.side);
+  const { lined } = jointLevels(j);
+  poly(g, [L(-1, 0, lined), L(0, 0, lined), L(0, 1, lined), L(-1, 1, lined)], STREAM_WATER, 1);
+  if (j.start) poly(g, [L(-1, COP), L(0, COP), L(0, COP, lined), L(-1, COP, lined)], shade(bank, 0.6), 1);
+};
+
+// The falling water at the joint: the stone face from the lip down to the low water, the higher water
+// seen over the lip, the sheet and its streaks
+const drawFall = (g: Graphics, j: Joint, bank: number) => {
+  const L = along(j.x, j.y, j.side);
+  const { high, low } = jointLevels(j);
+  const lip = high + LIP;
+  poly(g, [L(0, 0, 0), L(0, 1, 0), L(0, 1, lip), L(0, 0, lip)], j.kind === 'inlet' ? STREAM_WATER : getTileDef('canal').color, 1);
+  poly(g, [L(0, 0, lip), L(0, 1, lip), L(0, 1, low), L(0, 0, low)], shade(bank, 0.7), 1);
+  // the sheet runs on unbroken across a run of joints, stopping just short of the walls at its two ends
+  const [v0, v1] = [j.start ? 0.04 : 0, j.end ? 0.96 : 1];
+  poly(g, [L(0, v0, high - 0.3), L(0, v1, high - 0.3), L(0, v1, low), L(0, v0, low)], SHEET, 0.92);
+  for (let v = 0.1; v < 0.95; v += 0.17) poly(g, [L(0, v, high - 0.5), L(0, v + 0.035, high - 0.5), L(0, v + 0.05, low + 0.4), L(0, v + 0.015, low + 0.4)], FOAM, 0.75);
+};
+
+// Foam where the water lands, on the low side (further in when the low side is behind, where the joint
+// would hide the water right next to it)
+const drawLanding = (g: Graphics, j: Joint) => {
+  const L = along(j.x, j.y, j.side);
+  const { low, lowFront } = jointLevels(j);
+  const dir = j.kind === 'inlet' ? 1 : -1; // the low side: the canal (+u) or the stream (-u)
+  const [a, b] = lowFront ? [0.02, 0.42] : [0.35, 1];
+  poly(g, [L(dir * a, 0.03, low), L(dir * a, 0.97, low), L(dir * b, 0.97, low), L(dir * b, 0.03, low)], FOAM, 0.5);
+  for (let v = 0.08; v < 0.95; v += 0.21) poly(g, [L(dir * a, v, low), L(dir * a, v + 0.07, low), L(dir * b, v + 0.05, low), L(dir * b, v + 0.02, low)], FOAM, 0.7);
+};
+
+// In the canal's masked layer, before its water: with the stream behind, the lined tile shows past the lip
+const drawJointBeyond = (g: Graphics, j: Joint) => {
+  if (jointLevels(j).streamFront) return;
+  drawLinedWater(g, j, getTileDef('canal').bank ?? 0xa8a29e);
+};
+
+// In the canal's masked layer, after its walls: the outlet's lip, and the fall and foam when the canal is
+// the low side (an inlet)
+const drawJointInCanal = (g: Graphics, j: Joint) => {
+  const bank = getTileDef('canal').bank ?? 0xa8a29e;
+  const L = along(j.x, j.y, j.side);
+  const { high, lowFront } = jointLevels(j);
+  if (j.kind === 'outlet') poly(g, [L(0, 0, high + LIP), L(0, 1, high + LIP), L(0.12, 1, high + LIP), L(0.12, 0, high + LIP)], shade(bank, 1.05), 1);
+  if (j.kind === 'inlet') {
+    if (lowFront) drawFall(g, j, bank);
+    drawLanding(g, j);
+  }
+};
+
+// The lined tiles' opening: what is drawn in drawJointSunk shows only there
+export const drawJointOpening = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   canalJoints(state).forEach((j) => {
-    if (!inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 })) return;
+    if (!inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 1)) return;
     const L = along(j.x, j.y, j.side);
-    if (j.kind === 'inlet') poly(g, [L(0, 0), L(0, 1), L(COP * 1.4, 1), L(COP * 1.4, 0)], shade(bank, 1.08), 1);
-    // a wing wall: a thin box across the edge at a run's end, from inside the canal to past the bank
-    const wing = (v: number) => {
-      const [a, b] = [L(-0.7, v - 0.05), L(0.25, v + 0.05)];
-      const rect = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
-      drawBox(g, rect, 0, 3, shade(bank, 1.04), 1);
+    poly(g, [L(-1, 0), L(0, 0), L(0, 1), L(-1, 1)], 0xffffff, 1);
+  });
+};
+
+// Below ground in the lined tiles: the water, the walls' inside face, the joint's face toward the stream
+// when the stream is in front (the fall for an outlet, plain stone holding an inlet's raised water), and
+// for an outlet the foam on the stream
+export const drawJointSunk = (g: Graphics, state: State, win: ScreenWindow | null): void => {
+  const bank = getTileDef('canal').bank ?? 0xa8a29e;
+  canalJoints(state).forEach((j) => {
+    if (!inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 1)) return;
+    const L = along(j.x, j.y, j.side);
+    const { lined, streamFront, lowFront } = jointLevels(j);
+    drawLinedWater(g, j, bank);
+    if (streamFront) {
+      if (j.kind === 'outlet' && lowFront) drawFall(g, j, bank);
+      else poly(g, [L(0, 0, 0), L(0, 1, 0), L(0, 1, lined), L(0, 0, lined)], shade(bank, 0.7), 1);
+    }
+    if (j.kind === 'outlet') drawLanding(g, j);
+  });
+};
+
+// At ground level: the lined tile's coping along its walls, a post where each wall ends at the natural
+// bank, and an inlet's lip (it lies just under the ground, so it needs no mask)
+export const drawJointTops = (g: Graphics, state: State, win: ScreenWindow | null): void => {
+  const bank = getTileDef('canal').bank ?? 0xa8a29e;
+  canalJoints(state).forEach((j) => {
+    if (!inWindow(win, { x: j.x, y: j.y, w: 1, h: 1 }, 1)) return;
+    const L = along(j.x, j.y, j.side);
+    if (j.kind === 'inlet') {
+      const z = jointLevels(j).lined + LIP;
+      poly(g, [L(-0.12, 0, z), L(0, 0, z), L(0, 1, z), L(-0.12, 1, z)], shade(bank, 1.05), 1);
+    }
+    const rectOf = (u0: number, v0: number, u1: number, v1: number) => {
+      const [a, b] = [L(u0, v0), L(u1, v1)];
+      return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
     };
-    if (j.start) wing(0.05);
-    if (j.end) wing(0.95);
+    const POST = 0.16;
+    if (j.start) {
+      poly(g, quad(rectOf(-1, 0, 0, COP), 0), bank, 1);
+      drawBox(g, rectOf(-1, -0.03, -1 + POST, POST - 0.03), 0, 3, shade(bank, 1.04), 1);
+    }
+    if (j.end) {
+      poly(g, quad(rectOf(-1, 1 - COP, 0, 1), 0), bank, 1);
+      drawBox(g, rectOf(-1, 1 - POST + 0.03, -1 + POST, 1.03), 0, 3, shade(bank, 1.04), 1);
+    }
   });
 };
 
@@ -295,11 +387,16 @@ export const waterLayers = (state: State, ground?: number): Container => {
   drawCanalOpening(opening, state, null);
   drawCanalTop(top, state, null);
   drawJointTops(top, state, null);
+  const lined = new Graphics(), linedMask = new Graphics(), linedBox = new Container();
+  drawJointSunk(lined, state, null);
+  drawJointOpening(linedMask, state, null);
+  linedBox.addChild(lined);
+  linedBox.mask = linedMask;
   drawCulvertSunk(sunk, state, null);
   drawCulvertOpening(opening, state, null);
   drawCulvertTops(top, state, null);
   box.addChild(sunk);
   box.mask = opening;
-  out.addChild(box, opening, top);
+  out.addChild(box, opening, linedBox, linedMask, top);
   return out;
 };

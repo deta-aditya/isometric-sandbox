@@ -8,7 +8,7 @@
 // and thin paths read softer than a well-surrounded patch, and every border is a gradient. Terrains
 // blend straight into each other, corners come out round, and there is no stacking order to get wrong.
 
-import { STREAM_DEPTH, TILE_H } from '../config';
+import { INLET_RAISE, STREAM_DEPTH, TILE_H } from '../config';
 
 export const TERRAIN_PX = 8; // pixels per tile in a chunk picture
 // A chunk with a stream near is drawn finer, so the water's edge stays crisp up close. Only the last
@@ -57,8 +57,9 @@ export type TerrainLook = Readonly<{ color: number; specks?: readonly number[] }
 // The stream is flattened against them: its water reaches straight up to the stone.
 export type TerrainGrid = Readonly<{ w: number; h: number; kinds: Int16Array; stream: Uint8Array; pins: Uint8Array }>;
 // side 'pool' marks a tile whose water is deep right across (inside a culvert), easing off around it
-export type StreamPin = Readonly<{ x: number; y: number; side: 'west' | 'north' | 'east' | 'south' | 'pool' }>;
-const PIN_BIT = { west: 1, north: 2, east: 4, south: 8, pool: 16 } as const;
+// side 'raise' marks an inlet's tile: the stream's water is lowered less near it, rising to the inlet
+export type StreamPin = Readonly<{ x: number; y: number; side: 'west' | 'north' | 'east' | 'south' | 'pool' | 'raise' }>;
+const PIN_BIT = { west: 1, north: 2, east: 4, south: 8, pool: 16, raise: 32 } as const;
 
 export const terrainGrid = (
   cells: readonly Readonly<{ x: number; y: number; defId: string }>[],
@@ -245,7 +246,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   const fw = ecw * P, fh = ech * P;
   const sxs = spans(ecw, ex0, STREAM_SIGMA, 2, P), sys = spans(ech, ey0, STREAM_SIGMA, 2, P);
   // the strips of water pinned against stonework near this chunk (0.6 of a tile in from the pinned side)
-  const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [], pools: [number, number][] = [];
+  const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [], pools: [number, number][] = [], raises: [number, number][] = [];
   for (let y = Math.max(0, ey0 - 2); y < Math.min(g.h, ey0 + ech + 2); y++)
     for (let x = Math.max(0, ex0 - 2); x < Math.min(g.w, ex0 + ecw + 2); x++) {
       const bits = g.pins[y * g.w + x]!;
@@ -254,6 +255,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
       if (bits & 4) strips.push([x + 0.4, y, x + 1, y + 1]);
       if (bits & 8) strips.push([x, y + 0.4, x + 1, y + 1]);
       if (bits & 16) pools.push([x, y]);
+      if (bits & 32) raises.push([x, y]);
       // and the ground on the other side of the stonework stays level: no bank slopes down past a wall
       if (bits & 1) dry.push([x - 1, y, x, y + 1]);
       if (bits & 2) dry.push([x, y - 1, x + 1, y]);
@@ -327,7 +329,102 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
     return mix;
   };
   const depthAt = (qx: number, qy: number) => streamDepth(fieldAt(qx, qy));
+  // How much of the full lowering applies at a point: near an inlet the stream rises to the inlet's
+  // raised water, easing back to its own level over two tiles
+  const RAISED = INLET_RAISE / STREAM_DEPTH;
+  const lowering = (qx: number, qy: number) => {
+    let k = 1;
+    for (const [rx, ry] of raises) {
+      const d = Math.hypot(Math.max(rx - qx, 0, qx - rx - 1), Math.max(ry - qy, 0, qy - ry - 1));
+      if (d < 2) {
+        const t = d / 2;
+        k = Math.min(k, RAISED + (1 - RAISED) * t * t * (3 - 2 * t));
+      }
+    }
+    return k;
+  };
 
+  // One sample of the stream pass at a grid point: its color into col; 1 when it shows water, else 0
+  const col: [number, number, number] = [0, 0, 0];
+  const sample = (wx: number, wy: number): number => {
+    // the plain ground at this point, read smoothly from the coarser picture
+    const plain = () => {
+      const c = rgbAt(wx, wy);
+      col[0] = c[0]; col[1] = c[1]; col[2] = c[2];
+      return 0;
+    };
+    // the lowered point that shows here: q + SINK * depth(q) * (1, 1) = p
+    let qx = wx, qy = wy;
+    // found by repeated steps; each step goes only part way, so on a steep bank it settles instead of
+    // jumping back and forth (which left a jagged edge)
+    for (let n = 0; n < 8; n++) {
+      const d = depthAt(qx, qy);
+      const k = raises.length ? lowering(qx, qy) : 1;
+      qx += (wx - SINK * d * k - qx) * 0.6; qy += (wy - SINK * d * k - qy) * 0.6;
+    }
+    // stonework on the far side of a stream (its west or north edge): the lowered point would lie past
+    // the stone, on the level ground behind it, so the water here reaches right up to the stone instead
+    const cx = Math.floor(wx), cy = Math.floor(wy);
+    if (streamAt(g, cx, cy)) {
+      const own = g.pins[cy * g.w + cx]!;
+      // (one coarse pixel in, where the depth no longer mixes with the level ground behind the stone)
+      const inset = 1.5 / TERRAIN_PX;
+      if (own & 1 && qx < cx + inset) qx = Math.max(qx, cx + inset);
+      if (own & 2 && qy < cy + inset) qy = Math.max(qy, cy + inset);
+    }
+    // stonework on the near side of a stream (its east or south edge) stands in front of the water,
+    // so the ground just past it is not covered by the lowered water behind it
+    const qcx = Math.floor(qx), qcy = Math.floor(qy);
+    if ((qcx !== cx || qcy !== cy) && !streamAt(g, cx, cy) && qcx >= 0 && qcy >= 0 && qcx < g.w && qcy < g.h) {
+      const bits = g.pins[qcy * g.w + qcx]!;
+      if ((qcx < cx && bits & 4) || (qcy < cy && bits & 8)) return plain();
+    }
+    const d = depthAt(qx, qy);
+    const [r0, g0, b0] = rgbAt(qx, qy);
+    let [r, gr, b] = [r0, g0, b0];
+    if (d > 0) {
+      // a slope that goes down toward the camera (+x and +y) faces it and is lit; one going down away is in shade
+      const slope = (depthAt(qx - 0.08, qy - 0.08) - depthAt(qx + 0.08, qy + 0.08)) / 0.16;
+      const raw = Math.min(1.14, Math.max(0.74, 1 - slope * 0.25));
+      const bankColor = (dd: number): [number, number, number] => {
+        const band = dd / BANK_END;
+        // light and shade come in with the slope, so the grass where it starts is not brightened
+        const light = 1 + (raw - 1) * Math.min(1, band * 1.8);
+        // the ground turns to earth quickly at the top of the slope (a crisp edge), then darker wet earth
+        const toEarth = Math.min(1, band / 0.3);
+        let [er, eg, eb] = [r0 + (EARTH[0] - r0) * toEarth, g0 + (EARTH[1] - g0) * toEarth, b0 + (EARTH[2] - b0) * toEarth];
+        if (band > 0.55) {
+          const t = (band - 0.55) / 0.45;
+          [er, eg, eb] = [EARTH[0] + (WET[0] - EARTH[0]) * t, EARTH[1] + (WET[1] - EARTH[1]) * t, EARTH[2] + (WET[2] - EARTH[2]) * t];
+        }
+        // a few pebbles in the lower part of the slope
+        if (band > 0.55 && band < 0.95 && hash(Math.floor(qx * 16), Math.floor(qy * 16)) > 0.975) return [PEBBLE[0] * light, PEBBLE[1] * light, PEBBLE[2] * light];
+        return [er * light, eg * light, eb * light];
+      };
+      // the water starts with a clear edge, straight at the shallow color, and darkens only a little
+      // toward the middle, so the stream reads as one even color
+      const waterColor = (dd: number): [number, number, number] => {
+        const t = (dd - BANK_END) / (1 - BANK_END);
+        const dp = Math.min(1, Math.max(0, t - 0.3) / 0.5) * 0.6;
+        return [SHALLOW[0] + (DEEP[0] - SHALLOW[0]) * dp, SHALLOW[1] + (DEEP[1] - SHALLOW[1]) * dp, SHALLOW[2] + (DEEP[2] - SHALLOW[2]) * dp];
+      };
+      // across the waterline the two blend over about a pixel, so the edge is crisp but not a staircase
+      const EDGE = 0.05;
+      if (d < BANK_END - EDGE) [r, gr, b] = bankColor(d);
+      else if (d > BANK_END + EDGE) [r, gr, b] = waterColor(d);
+      else {
+        const t = (d - (BANK_END - EDGE)) / (2 * EDGE), lo = bankColor(Math.min(d, BANK_END - 1e-3)), hi = waterColor(Math.max(d, BANK_END));
+        [r, gr, b] = [lo[0] + (hi[0] - lo[0]) * t, lo[1] + (hi[1] - lo[1]) * t, lo[2] + (hi[2] - lo[2]) * t];
+      }
+    }
+    col[0] = r; col[1] = gr; col[2] = b;
+    return d > BANK_END ? 1 : 0;
+  };
+
+  // Every pixel near the stream takes one sample at its middle. Where water meets the bank (a pixel that
+  // shows water next to one that does not), the near bank's edge is a hard fold in the lowered picture,
+  // so those pixels are taken again as the average of four samples, which smooths the edge.
+  const kind = new Int8Array(pw * ph).fill(-1);
   for (let ty = 0; ty < ch; ty++)
     for (let tx = 0; tx < cw; tx++) {
       const gx = x0 + tx, gy = y0 + ty;
@@ -336,73 +433,29 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
         for (let px = tx * P; px < (tx + 1) * P; px++) {
           const i = (py * pw + px) * 4;
           const wx = x0 + (px + 0.5) / P, wy = y0 + (py + 0.5) / P;
-          // the plain ground at this point, read smoothly from the coarser picture
-          const plain = () => {
+          if (!wet) {
             const c = rgbAt(wx, wy);
             put(i, c[0], c[1], c[2]);
-          };
-          if (!wet) {
-            plain();
             continue;
           }
-          // the lowered point that shows here: q + SINK * depth(q) * (1, 1) = p
-          let qx = wx, qy = wy;
-          // found by repeated steps; each step goes only part way, so on a steep bank it settles instead of
-          // jumping back and forth (which left a jagged edge)
-          for (let n = 0; n < 8; n++) {
-            const d = depthAt(qx, qy);
-            qx += (wx - SINK * d - qx) * 0.6; qy += (wy - SINK * d - qy) * 0.6;
-          }
-          // stonework on the far side of a stream (its west or north edge): the lowered point would lie past
-          // the stone, on the level ground behind it, so the water here reaches right up to the stone instead
-          const cx = Math.floor(wx), cy = Math.floor(wy);
-          if (streamAt(g, cx, cy)) {
-            const own = g.pins[cy * g.w + cx]!;
-            // (one coarse pixel in, where the depth no longer mixes with the level ground behind the stone)
-            const inset = 1.5 / TERRAIN_PX;
-            if (own & 1 && qx < cx + inset) qx = Math.max(qx, cx + inset);
-            if (own & 2 && qy < cy + inset) qy = Math.max(qy, cy + inset);
-          }
-          // stonework on the near side of a stream (its east or south edge) stands in front of the water,
-          // so the ground just past it is not covered by the lowered water behind it
-          const qcx = Math.floor(qx), qcy = Math.floor(qy);
-          if ((qcx !== cx || qcy !== cy) && !streamAt(g, cx, cy) && qcx >= 0 && qcy >= 0 && qcx < g.w && qcy < g.h) {
-            const bits = g.pins[qcy * g.w + qcx]!;
-            if ((qcx < cx && bits & 4) || (qcy < cy && bits & 8)) {
-              plain();
-              continue;
-            }
-          }
-          const d = depthAt(qx, qy);
-          let [r, gr, b] = rgbAt(qx, qy);
-          if (d > 0) {
-            // a slope that goes down toward the camera (+x and +y) faces it and is lit; one going down away is in shade
-            const slope = (depthAt(qx - 0.08, qy - 0.08) - depthAt(qx + 0.08, qy + 0.08)) / 0.16;
-            const raw = Math.min(1.14, Math.max(0.74, 1 - slope * 0.25));
-            if (d < BANK_END) {
-              const band = d / BANK_END;
-              // light and shade come in with the slope, so the grass where it starts is not brightened
-              const light = 1 + (raw - 1) * Math.min(1, band * 1.8);
-              // the ground turns to earth quickly at the top of the slope (a crisp edge), then darker wet earth
-              const toEarth = Math.min(1, band / 0.3);
-              let [er, eg, eb] = [r + (EARTH[0] - r) * toEarth, gr + (EARTH[1] - gr) * toEarth, b + (EARTH[2] - b) * toEarth];
-              if (band > 0.55) {
-                const t = (band - 0.55) / 0.45;
-                [er, eg, eb] = [EARTH[0] + (WET[0] - EARTH[0]) * t, EARTH[1] + (WET[1] - EARTH[1]) * t, EARTH[2] + (WET[2] - EARTH[2]) * t];
-              }
-              [r, gr, b] = [er * light, eg * light, eb * light];
-              // a few pebbles in the lower part of the slope
-              if (band > 0.55 && band < 0.95 && hash(Math.floor(qx * 16), Math.floor(qy * 16)) > 0.975) [r, gr, b] = [PEBBLE[0] * light, PEBBLE[1] * light, PEBBLE[2] * light];
-            } else {
-              // the water starts with a clear edge, straight at the shallow color, and darkens only a little
-              // toward the middle, so the stream reads as one even color
-              const t = (d - BANK_END) / (1 - BANK_END);
-              const dp = Math.min(1, Math.max(0, t - 0.3) / 0.5) * 0.6;
-              [r, gr, b] = [SHALLOW[0] + (DEEP[0] - SHALLOW[0]) * dp, SHALLOW[1] + (DEEP[1] - SHALLOW[1]) * dp, SHALLOW[2] + (DEEP[2] - SHALLOW[2]) * dp];
-            }
-          }
-          put(i, r, gr, b);
+          kind[py * pw + px] = sample(wx, wy);
+          put(i, col[0], col[1], col[2]);
         }
+    }
+  const Q = 0.25 / P;
+  for (let py = 0; py < ph; py++)
+    for (let px = 0; px < pw; px++) {
+      const k = kind[py * pw + px]!;
+      if (k < 0) continue;
+      const differs = (x: number, y: number) => x >= 0 && y >= 0 && x < pw && y < ph && kind[y * pw + x]! >= 0 && kind[y * pw + x] !== k;
+      if (!differs(px - 1, py) && !differs(px + 1, py) && !differs(px, py - 1) && !differs(px, py + 1)) continue;
+      const wx = x0 + (px + 0.5) / P, wy = y0 + (py + 0.5) / P;
+      let sr = 0, sg = 0, sb = 0;
+      for (const [ox, oy] of [[-Q, -Q], [Q, -Q], [-Q, Q], [Q, Q]] as const) {
+        sample(wx + ox, wy + oy);
+        sr += col[0]; sg += col[1]; sb += col[2];
+      }
+      put((py * pw + px) * 4, sr / 4, sg / 4, sb / 4);
     }
   return out;
 };

@@ -2,7 +2,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { type Rotation, footprintOf, getItem, getTileDef, isFlat, isTerrain, getTerrainDef, occupiedCells } from '../catalog';
 import { brushCells, brushCircle } from '../brush';
-import { ROOF_T, WALL_H } from '../config';
+import { ROOF_T, STREAM_DEPTH, WALL_H } from '../config';
 import { type Size, sizeOf, toScreen } from '../geometry';
 import { type Rect, nearestVertex } from '../geometry';
 import {
@@ -35,7 +35,7 @@ import {
   cellInBounds,
 } from '../world';
 import { createTerrainLayer } from './terrainLayer';
-import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawCulvertOpening, drawCulvertSunk, drawCulvertTops, drawJointTops, waterLayers } from './water';
+import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawCulvertOpening, drawCulvertSunk, drawCulvertTops, drawJointOpening, drawJointSunk, drawJointTops, waterLayers } from './water';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
 import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
@@ -118,24 +118,37 @@ export const createScene = (world: Container) => {
   const canalTop = new Graphics();
   canalBox.addChild(canalSunk);
   canalBox.mask = canalMask;
+  // the stone-lined stream tile at each canal outlet and inlet: the same idea, through its own opening
+  const jointSunk = new Graphics();
+  const jointBox = new Container();
+  const jointMask = new Graphics();
+  jointBox.addChild(jointSunk);
+  jointBox.mask = jointMask;
   // grid lines stop at stream tiles (the canal covers them; its layers are above the grid)
   const streamMask = new Graphics();
   gridLines.setMask({ mask: streamMask, inverse: true });
-  world.addChild(ground, terrain.container, gridLines, streamMask, canalBox, canalMask, canalTop, floors, flats, guides, overlay, solids);
+  world.addChild(ground, terrain.container, gridLines, streamMask, canalBox, canalMask, jointBox, jointMask, canalTop, floors, flats, guides, overlay, solids);
   let canalDrawn: Readonly<{ tiles: State['tiles']; culverts: State['culverts']; win: ScreenWindow | null }> | null = null;
   const drawCanal = (state: State, win: ScreenWindow | null): void => {
     const c = canalDrawn;
     if (c && c.tiles === state.tiles && c.culverts === state.culverts && c.win === win) return;
     canalDrawn = { tiles: state.tiles, culverts: state.culverts, win };
-    [canalSunk, canalMask, canalTop, streamMask].forEach((g) => g.clear());
+    [canalSunk, canalMask, canalTop, streamMask, jointSunk, jointMask].forEach((g) => g.clear());
     state.tiles.forEach((t) => {
-      if (t.defId === 'stream' && inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) poly(streamMask, quad({ x: t.x, y: t.y, w: 1, h: 1 }, 0), 0xffffff, 1);
+      if (t.defId !== 'stream' || !inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
+      // the tile, and the tile as lowered: the water shows a little past a stream's near banks
+      poly(streamMask, quad({ x: t.x, y: t.y, w: 1, h: 1 }, 0), 0xffffff, 1);
+      poly(streamMask, quad({ x: t.x, y: t.y, w: 1, h: 1 }, -STREAM_DEPTH * 0.8), 0xffffff, 1);
     });
     // an empty mask would hide nothing anyway; keep one tiny shape off the map so the mask is valid
     if (streamMask.bounds.width === 0) poly(streamMask, quad({ x: -9, y: -9, w: 0.01, h: 0.01 }, 0), 0xffffff, 1);
     drawCanalSunk(canalSunk, state, win);
     drawCanalOpening(canalMask, state, win);
     drawCanalTop(canalTop, state, win);
+    drawJointSunk(jointSunk, state, win);
+    drawJointOpening(jointMask, state, win);
+    // an empty mask would hide nothing; keep one tiny shape off the map so the mask is valid
+    if (jointMask.bounds.width === 0) poly(jointMask, quad({ x: -9, y: -9, w: 0.01, h: 0.01 }, 0), 0xffffff, 1);
     drawJointTops(canalTop, state, win);
     drawCulvertSunk(canalSunk, state, win);
     drawCulvertOpening(canalMask, state, win);
