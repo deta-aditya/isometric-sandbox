@@ -1,8 +1,9 @@
 import { strict as assert } from 'node:assert';
+// (pictures with a stream in them are drawn at STREAM_PX, so that is the pixel size used here)
 import { CANAL_DEPTH, STREAM_SINK } from '../src/config.ts';
 import { sizeOf } from '../src/geometry.ts';
 import { buildDrawables } from '../src/render/drawables.ts';
-import { GROUND_KIND, TERRAIN_PX, chunkPixels, terrainGrid } from '../src/render/terrainField.ts';
+import { GROUND_KIND, STREAM_PX as TERRAIN_PX, chunkPixels, terrainGrid } from '../src/render/terrainField.ts';
 import { type State, initialState } from '../src/world.ts';
 let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 

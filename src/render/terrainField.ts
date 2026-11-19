@@ -11,6 +11,10 @@
 import { STREAM_DEPTH, TILE_H } from '../config';
 
 export const TERRAIN_PX = 8; // pixels per tile in a chunk picture
+// A chunk with a stream near is drawn finer, so the water's edge stays crisp up close. Only the last
+// pass runs at this size: the terrain blend and the stream's depth are worked out at TERRAIN_PX and read
+// smoothly between their pixels.
+export const STREAM_PX = 16;
 export const CHUNK = 32; // tiles per chunk side
 const SIGMA = 0.8; // spread of the Gaussian, in tiles: how far a tile's color reaches
 export const REACH = 3; // tiles beyond which a tile's share is too small to count (about 3.75 sigma)
@@ -25,7 +29,7 @@ const SPECK_DENSITY = 0.07; // share of a fully flowery pixel that is a speck
 // tiles further along both +x and +y, so the far bank's slope faces the camera and the near bank's
 // tucks away behind its rim.
 const STREAM_SIGMA = 0.62;
-const WOBBLE = 0.2; // how far the edge wanders (in field units)
+const WOBBLE = 0.13; // how far the edge wanders (in field units)
 const WOBBLE_SCALE = 0.8; // how slowly it wanders (per tile)
 const SINK = STREAM_DEPTH / TILE_H;
 const BANK_END = 0.72; // depth where the slope gives way to water
@@ -127,16 +131,24 @@ const hash = (x: number, y: number): number => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
-// The picture of one chunk (chunk column cx, row cy): RGBA, (cw * TERRAIN_PX) by (ch * TERRAIN_PX),
-// where cw and ch are the chunk's tiles clipped to the map
+// The picture of one chunk (chunk column cx, row cy): RGBA, (cw * px) by (ch * px), where cw and ch are
+// the chunk's tiles clipped to the map and px is chunkPx (STREAM_PX near a stream, else TERRAIN_PX)
 export const chunkSize = (g: TerrainGrid, cx: number, cy: number) => ({
   cw: Math.max(0, Math.min(CHUNK, g.w - cx * CHUNK)),
   ch: Math.max(0, Math.min(CHUNK, g.h - cy * CHUNK)),
 });
 
+const streamNear = (g: TerrainGrid, x0: number, y0: number, cw: number, ch: number): boolean =>
+  anyStream(g, x0 - REACH - 1, y0 - REACH - 1, x0 + cw + REACH, y0 + ch + REACH);
+export const chunkPx = (g: TerrainGrid, cx: number, cy: number): number => {
+  const { cw, ch } = chunkSize(g, cx, cy);
+  return streamNear(g, cx * CHUNK, cy * CHUNK, cw, ch) ? STREAM_PX : TERRAIN_PX;
+};
+
 export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: readonly TerrainLook[], ground: TerrainLook): Uint8ClampedArray<ArrayBuffer> => {
   const { cw, ch } = chunkSize(g, cx, cy);
-  const pw = cw * TERRAIN_PX, ph = ch * TERRAIN_PX;
+  const P = chunkPx(g, cx, cy);
+  const pw = cw * P, ph = ch * P;
   const out = new Uint8ClampedArray(pw * ph * 4);
   const lookOf = (k: number): TerrainLook => (k === GROUND_KIND ? ground : looks[k]!);
   const rgb = (k: number): readonly [number, number, number] => {
@@ -153,7 +165,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   // A stream sinks: each pixel shows a lowered point up to half a tile up and to the left of it, so a
   // chunk with a stream near is worked out over one more tile on those sides (M), then the stream pass
   // writes the chunk's own pixels. Without a stream near, the extended picture is the chunk itself.
-  const near = anyStream(g, x0 - REACH - 1, y0 - REACH - 1, x0 + cw + REACH, y0 + ch + REACH);
+  const near = streamNear(g, x0, y0, cw, ch);
   const M = near ? 1 : 0;
   const ex0 = x0 - M, ey0 = y0 - M, ecw = cw + M, ech = ch + M, epw = ecw * TERRAIN_PX, eph = ech * TERRAIN_PX;
   const ext = near ? new Uint8ClampedArray(epw * eph * 4) : out;
@@ -162,9 +174,9 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   };
 
   // For each pixel row and column: the tiles within reach and each one's share along that axis
-  const spans = (n: number, origin: number, sigma: number, reach: number) =>
-    Array.from({ length: n * TERRAIN_PX }, (_, i) => {
-      const p = origin + (i + 0.5) / TERRAIN_PX;
+  const spans = (n: number, origin: number, sigma: number, reach: number, perTile = TERRAIN_PX) =>
+    Array.from({ length: n * perTile }, (_, i) => {
+      const p = origin + (i + 0.5) / perTile;
       const parts: [number, number][] = [];
       for (let t = Math.floor(p) - reach; t <= Math.floor(p) + reach; t++) {
         const o = share(p, t, sigma);
@@ -229,7 +241,9 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   // ===== The stream pass =====
   // The stream's own field at every pixel of the extended picture: a blur of its tiles plus a gentle
   // wobble, so its edge wanders instead of following the tiles. Its depth comes from the field.
-  const sxs = spans(ecw, ex0, STREAM_SIGMA, 2), sys = spans(ech, ey0, STREAM_SIGMA, 2);
+  // (worked out at the picture's own finer size, so the water's edge has no kinks where coarse pixels meet)
+  const fw = ecw * P, fh = ech * P;
+  const sxs = spans(ecw, ex0, STREAM_SIGMA, 2, P), sys = spans(ech, ey0, STREAM_SIGMA, 2, P);
   // the strips of water pinned against stonework near this chunk (0.6 of a tile in from the pinned side)
   const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [], pools: [number, number][] = [];
   for (let y = Math.max(0, ey0 - 2); y < Math.min(g.h, ey0 + ech + 2); y++)
@@ -246,12 +260,21 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
       if (bits & 4) dry.push([x + 1, y, x + 2, y + 1]);
       if (bits & 8) dry.push([x, y + 1, x + 1, y + 2]);
     }
-  const field = new Float32Array(epw * eph);
-  for (let py = 0; py < eph; py++)
-    for (let px = 0; px < epw; px++) {
+  // the blur in two passes: first along x for every tile row in reach, then those rows down y
+  const ry0 = ey0 - 3, rows = ech + 6;
+  const across = new Float32Array(rows * fw);
+  for (let r = 0; r < rows; r++)
+    for (let px = 0; px < fw; px++) {
+      let sum = 0;
+      for (const [xx, ox] of sxs[px]!) if (streamAt(g, xx, ry0 + r)) sum += ox;
+      across[r * fw + px] = sum;
+    }
+  const field = new Float32Array(fw * fh);
+  for (let py = 0; py < fh; py++)
+    for (let px = 0; px < fw; px++) {
       let f = 0;
-      for (const [yy, oy] of sys[py]!) for (const [xx, ox] of sxs[px]!) if (streamAt(g, xx, yy)) f += ox * oy;
-      const wx = ex0 + (px + 0.5) / TERRAIN_PX, wy = ey0 + (py + 0.5) / TERRAIN_PX;
+      for (const [yy, oy] of sys[py]!) f += oy * across[(yy - ry0) * fw + px]!;
+      const wx = ex0 + (px + 0.5) / P, wy = ey0 + (py + 0.5) / P;
       let wobble = (valueNoise(wx * WOBBLE_SCALE, wy * WOBBLE_SCALE) - 0.5) * WOBBLE;
       // near stonework the edge is straight: the wobble fades out, and the strip itself is deep water
       for (const [x0s, y0s, x1s, y1s] of strips) {
@@ -276,7 +299,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
         }
         f = Math.max(f, 1.05 * (1 - (d / 1.5) ** 1.5) * shore);
       }
-      field[py * epw + px] = dry.some(([a, b, c, d]) => wx >= a && wx < c && wy >= b && wy < d) && !streamAt(g, Math.floor(wx), Math.floor(wy)) ? -1 : f + wobble;
+      field[py * fw + px] = dry.some(([a, b, c, d]) => wx >= a && wx < c && wy >= b && wy < d) && !streamAt(g, Math.floor(wx), Math.floor(wy)) ? -1 : f + wobble;
     }
   // bilinear reads of the extended picture at a grid point (clamped to it)
   const at = (qx: number, qy: number) => {
@@ -285,16 +308,23 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
     return { i0, j0, i1, j1, fu: u - i0, fv: v - j0 };
   };
   const fieldAt = (qx: number, qy: number) => {
-    const { i0, j0, i1, j1, fu, fv } = at(qx, qy);
-    const a = field[j0 * epw + i0]! + (field[j0 * epw + i1]! - field[j0 * epw + i0]!) * fu;
-    const b = field[j1 * epw + i0]! + (field[j1 * epw + i1]! - field[j1 * epw + i0]!) * fu;
+    const u = Math.min(fw - 1, Math.max(0, (qx - ex0) * P - 0.5)), v = Math.min(fh - 1, Math.max(0, (qy - ey0) * P - 0.5));
+    const i0 = Math.floor(u), j0 = Math.floor(v), i1 = Math.min(fw - 1, i0 + 1), j1 = Math.min(fh - 1, j0 + 1);
+    const fu = u - i0, fv = v - j0;
+    const a = field[j0 * fw + i0]! + (field[j0 * fw + i1]! - field[j0 * fw + i0]!) * fu;
+    const b = field[j1 * fw + i0]! + (field[j1 * fw + i1]! - field[j1 * fw + i0]!) * fu;
     return a + (b - a) * fv;
   };
-  const colorAt = (qx: number, qy: number, n: number) => {
+  // all three channels at once (one set of weights), into mix
+  const mix: [number, number, number] = [0, 0, 0];
+  const rgbAt = (qx: number, qy: number) => {
     const { i0, j0, i1, j1, fu, fv } = at(qx, qy);
-    const c = (i: number, j: number) => ext[(j * epw + i) * 4 + n]!;
-    const a = c(i0, j0) + (c(i1, j0) - c(i0, j0)) * fu, b = c(i0, j1) + (c(i1, j1) - c(i0, j1)) * fu;
-    return a + (b - a) * fv;
+    const a0 = (j0 * epw + i0) * 4, a1 = (j0 * epw + i1) * 4, b0 = (j1 * epw + i0) * 4, b1 = (j1 * epw + i1) * 4;
+    for (let n = 0; n < 3; n++) {
+      const top = ext[a0 + n]! + (ext[a1 + n]! - ext[a0 + n]!) * fu, bottom = ext[b0 + n]! + (ext[b1 + n]! - ext[b0 + n]!) * fu;
+      mix[n] = top + (bottom - top) * fv;
+    }
+    return mix;
   };
   const depthAt = (qx: number, qy: number) => streamDepth(fieldAt(qx, qy));
 
@@ -302,34 +332,49 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
     for (let tx = 0; tx < cw; tx++) {
       const gx = x0 + tx, gy = y0 + ty;
       const wet = anyStream(g, gx - 3, gy - 3, gx + 4, gy + 4);
-      for (let py = ty * TERRAIN_PX; py < (ty + 1) * TERRAIN_PX; py++)
-        for (let px = tx * TERRAIN_PX; px < (tx + 1) * TERRAIN_PX; px++) {
+      for (let py = ty * P; py < (ty + 1) * P; py++)
+        for (let px = tx * P; px < (tx + 1) * P; px++) {
           const i = (py * pw + px) * 4;
+          const wx = x0 + (px + 0.5) / P, wy = y0 + (py + 0.5) / P;
+          // the plain ground at this point, read smoothly from the coarser picture
+          const plain = () => {
+            const c = rgbAt(wx, wy);
+            put(i, c[0], c[1], c[2]);
+          };
           if (!wet) {
-            const e = ((py + M * TERRAIN_PX) * epw + px + M * TERRAIN_PX) * 4;
-            put(i, ext[e]!, ext[e + 1]!, ext[e + 2]!);
+            plain();
             continue;
           }
           // the lowered point that shows here: q + SINK * depth(q) * (1, 1) = p
-          const wx = x0 + (px + 0.5) / TERRAIN_PX, wy = y0 + (py + 0.5) / TERRAIN_PX;
           let qx = wx, qy = wy;
-          for (let n = 0; n < 4; n++) {
+          // found by repeated steps; each step goes only part way, so on a steep bank it settles instead of
+          // jumping back and forth (which left a jagged edge)
+          for (let n = 0; n < 8; n++) {
             const d = depthAt(qx, qy);
-            qx = wx - SINK * d; qy = wy - SINK * d;
+            qx += (wx - SINK * d - qx) * 0.6; qy += (wy - SINK * d - qy) * 0.6;
+          }
+          // stonework on the far side of a stream (its west or north edge): the lowered point would lie past
+          // the stone, on the level ground behind it, so the water here reaches right up to the stone instead
+          const cx = Math.floor(wx), cy = Math.floor(wy);
+          if (streamAt(g, cx, cy)) {
+            const own = g.pins[cy * g.w + cx]!;
+            // (one coarse pixel in, where the depth no longer mixes with the level ground behind the stone)
+            const inset = 1.5 / TERRAIN_PX;
+            if (own & 1 && qx < cx + inset) qx = Math.max(qx, cx + inset);
+            if (own & 2 && qy < cy + inset) qy = Math.max(qy, cy + inset);
           }
           // stonework on the near side of a stream (its east or south edge) stands in front of the water,
           // so the ground just past it is not covered by the lowered water behind it
-          const cx = Math.floor(wx), cy = Math.floor(wy), qcx = Math.floor(qx), qcy = Math.floor(qy);
+          const qcx = Math.floor(qx), qcy = Math.floor(qy);
           if ((qcx !== cx || qcy !== cy) && !streamAt(g, cx, cy) && qcx >= 0 && qcy >= 0 && qcx < g.w && qcy < g.h) {
             const bits = g.pins[qcy * g.w + qcx]!;
             if ((qcx < cx && bits & 4) || (qcy < cy && bits & 8)) {
-              const e = ((py + M * TERRAIN_PX) * epw + px + M * TERRAIN_PX) * 4;
-              put(i, ext[e]!, ext[e + 1]!, ext[e + 2]!);
+              plain();
               continue;
             }
           }
           const d = depthAt(qx, qy);
-          let r = colorAt(qx, qy, 0), gr = colorAt(qx, qy, 1), b = colorAt(qx, qy, 2);
+          let [r, gr, b] = rgbAt(qx, qy);
           if (d > 0) {
             // a slope that goes down toward the camera (+x and +y) faces it and is lit; one going down away is in shade
             const slope = (depthAt(qx - 0.08, qy - 0.08) - depthAt(qx + 0.08, qy + 0.08)) / 0.16;
@@ -338,8 +383,8 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
               const band = d / BANK_END;
               // light and shade come in with the slope, so the grass where it starts is not brightened
               const light = 1 + (raw - 1) * Math.min(1, band * 1.8);
-              // the ground around fades into damp earth over the first part of the slope, then darker wet earth
-              const toEarth = Math.min(1, band / 0.55);
+              // the ground turns to earth quickly at the top of the slope (a crisp edge), then darker wet earth
+              const toEarth = Math.min(1, band / 0.3);
               let [er, eg, eb] = [r + (EARTH[0] - r) * toEarth, gr + (EARTH[1] - gr) * toEarth, b + (EARTH[2] - b) * toEarth];
               if (band > 0.55) {
                 const t = (band - 0.55) / 0.45;
@@ -349,10 +394,11 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
               // a few pebbles in the lower part of the slope
               if (band > 0.55 && band < 0.95 && hash(Math.floor(qx * 16), Math.floor(qy * 16)) > 0.975) [r, gr, b] = [PEBBLE[0] * light, PEBBLE[1] * light, PEBBLE[2] * light];
             } else {
+              // the water starts with a clear edge, straight at the shallow color, and darkens only a little
+              // toward the middle, so the stream reads as one even color
               const t = (d - BANK_END) / (1 - BANK_END);
-              const sh = Math.min(1, t * 2.2), dp = Math.max(0, t - 0.45) / 0.55;
-              const s0 = [WET[0] + (SHALLOW[0] - WET[0]) * sh, WET[1] + (SHALLOW[1] - WET[1]) * sh, WET[2] + (SHALLOW[2] - WET[2]) * sh];
-              [r, gr, b] = [s0[0]! + (DEEP[0] - s0[0]!) * dp, s0[1]! + (DEEP[1] - s0[1]!) * dp, s0[2]! + (DEEP[2] - s0[2]!) * dp];
+              const dp = Math.min(1, Math.max(0, t - 0.3) / 0.5) * 0.6;
+              [r, gr, b] = [SHALLOW[0] + (DEEP[0] - SHALLOW[0]) * dp, SHALLOW[1] + (DEEP[1] - SHALLOW[1]) * dp, SHALLOW[2] + (DEEP[2] - SHALLOW[2]) * dp];
             }
           }
           put(i, r, gr, b);

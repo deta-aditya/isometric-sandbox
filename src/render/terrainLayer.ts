@@ -13,7 +13,7 @@ import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
 import { type State, canalStreamOf, culvertShape } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
-import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
+import { CHUNK, GROUND_KIND, REACH, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkPx, chunkSize, differs, terrainGrid } from './terrainField';
 
 // The stream sides with stonework on them: plain culverts on a stream bank, canal outlets and inlets
 const streamPins = (state: State): readonly StreamPin[] =>
@@ -66,7 +66,8 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
 
   const paint = (key: string, cx: number, cy: number, g: TerrainGrid): void => {
     const { cw, ch } = chunkSize(g, cx, cy);
-    const [pw, ph] = [cw * TERRAIN_PX, ch * TERRAIN_PX];
+    const P = chunkPx(g, cx, cy);
+    const [pw, ph] = [cw * P, ch * P];
     let c = chunks.get(key);
     if (c && (c.canvas.width !== pw || c.canvas.height !== ph)) {
       drop(key);
@@ -82,7 +83,7 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
       const sprite = new Sprite(texture);
       // grid (x, y) to the world container: ((x - y) * TILE_W / 2, (x + y) * TILE_H / 2)
       const [x0, y0] = [cx * CHUNK, cy * CHUNK];
-      const [u, v] = [TILE_W / 2 / TERRAIN_PX, TILE_H / 2 / TERRAIN_PX];
+      const [u, v] = [TILE_W / 2 / P, TILE_H / 2 / P];
       sprite.setFromMatrix(new Matrix(u, v, -u, v, (x0 - y0) * (TILE_W / 2), (x0 + y0) * (TILE_H / 2)));
       container.addChild(sprite);
       chunks.set(key, { sprite, canvas, texture, drawn: g });

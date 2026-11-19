@@ -171,11 +171,15 @@ export const drawJointTops = (g: Graphics, state: State, win: ScreenWindow | nul
 // Each wall is an upright box. What lies below ground is drawn into the masked sunk layer (it shows only
 // over water, like the canal's own walls); what stands above ground is drawn on top.
 const WALL = 0.14; // wall thickness, in tiles
-const RISE = 4; // how far the walls stand above the ground, in pixels
+const RISE = 6; // how far the back wall stands above the ground, in pixels
+const RISE_END = 1; // the side walls slope down from the back wall's height to this at the open end
 const STONE = 0xb4ada3;
 // joined: the next tile along the edge (the after side) has a piece with the same back, so the back
 // walls run on and the end face between them is not drawn
-type Piece = CulvertShape & Readonly<{ depth: number; boxes: readonly Rect[]; joined: boolean }>;
+// Each wall is a box; a side wall's top slopes (from the back wall's height at the corner down toward the
+// open end), and top gives the height of a wall's top at a grid point
+type Wall = Readonly<{ r: Rect; slope: boolean }>;
+type Piece = CulvertShape & Readonly<{ depth: number; boxes: readonly Wall[]; joined: boolean; top: (w: Wall, gx: number, gy: number) => number }>;
 const culvertPieces = (state: State, win: ScreenWindow | null): readonly Piece[] =>
   state.culverts.flatMap((e) => {
     if (e.kind) return [];
@@ -189,21 +193,27 @@ const culvertPieces = (state: State, win: ScreenWindow | null): readonly Piece[]
       return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
     };
     // v runs along the edge from the before side (v = 0) to the after side
-    const boxes = [box(0, 0, WALL, 1)];
-    if (p.before) boxes.push(box(0, 0, 1, WALL));
-    if (p.after) boxes.push(box(0, 1 - WALL, 1, 1));
+    const boxes: Wall[] = [{ r: box(0, 0, WALL, 1), slope: false }];
+    if (p.before) boxes.push({ r: box(0, 0, 1, WALL), slope: true });
+    if (p.after) boxes.push({ r: box(0, 1 - WALL, 1, 1), slope: true });
+    const { x, y } = p.cell;
+    // how far a point lies in from the back edge
+    const inward = (gx: number, gy: number) => ({ west: gx - x, north: gy - y, east: x + 1 - gx, south: y + 1 - gy })[p.back];
+    const top = (w: Wall, gx: number, gy: number) =>
+      w.slope ? RISE_END + (RISE - RISE_END) * Math.min(1, Math.max(0, (1 - inward(gx, gy)) / (1 - WALL))) : RISE;
     const [ax, ay] = p.back === 'north' || p.back === 'south' ? [1, 0] : [0, 1];
     const joined = state.culverts.some((c) => {
       if (c.kind) return false;
       const q = culvertShape(state, c);
       return q !== null && q.back === p.back && q.cell.x === p.cell.x + ax && q.cell.y === p.cell.y + ay;
     });
-    return [{ ...p, depth: water === 'stream' ? STREAM_DEPTH : CANAL_DEPTH, boxes, joined }];
+    return [{ ...p, depth: water === 'stream' ? STREAM_DEPTH : CANAL_DEPTH, boxes, joined, top }];
   });
 
 // The two faces of a box that look toward the camera (+y, then +x), each with whether water lies in
 // front of it (then it reaches down to the water) and the shade it takes
-const facesOf = (state: State, p: Piece, r: Rect) => {
+const facesOf = (state: State, p: Piece, w: Wall) => {
+  const r = w.r;
   const wet = (x: number, y: number) => state.tiles.some((t) => t.x === x && t.y === y && (t.defId === 'canal' || t.defId === 'stream'));
   const { x, y } = p.cell;
   const y1 = r.y + r.h, x1 = r.x + r.w;
@@ -211,11 +221,12 @@ const facesOf = (state: State, p: Piece, r: Rect) => {
   const southWet = y1 < y + 1 - 1e-6 || wet(Math.floor(r.x + r.w / 2), y + 1);
   const eastWet = x1 < x + 1 - 1e-6 || wet(x + 1, Math.floor(r.y + r.h / 2));
   // the back wall's end face toward a joined neighbor is hidden inside the wall that runs on
-  const back = r === p.boxes[0] && p.joined;
+  const back = w === p.boxes[0] && p.joined;
   const across = p.back === 'north' || p.back === 'south';
   return [
-    { pts: (z0: number, z1: number): P3[] => [[r.x, y1, z1], [x1, y1, z1], [x1, y1, z0], [r.x, y1, z0]], wet: southWet, tone: 0.76, hidden: back && !across },
-    { pts: (z0: number, z1: number): P3[] => [[x1, y1, z1], [x1, r.y, z1], [x1, r.y, z0], [x1, y1, z0]], wet: eastWet, tone: 0.58, hidden: back && across },
+    // a face's corners: from z0 up to z1, or up to the wall's own top when z1 is not given
+    { pts: (z0: number, z1?: number): P3[] => [[r.x, y1, z1 ?? p.top(w, r.x, y1)], [x1, y1, z1 ?? p.top(w, x1, y1)], [x1, y1, z0], [r.x, y1, z0]], wet: southWet, tone: 0.76, hidden: back && !across },
+    { pts: (z0: number, z1?: number): P3[] => [[x1, y1, z1 ?? p.top(w, x1, y1)], [x1, r.y, z1 ?? p.top(w, x1, r.y)], [x1, r.y, z0], [x1, y1, z0]], wet: eastWet, tone: 0.58, hidden: back && across },
   ].filter((f) => !f.hidden);
 };
 
@@ -234,7 +245,7 @@ export const drawCulvertOpening = (g: Graphics, state: State, win: ScreenWindow 
 export const drawCulvertSunk = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   culvertPieces(state, win).forEach((p) => {
     const D = -p.depth;
-    p.boxes.forEach((r) => facesOf(state, p, r).forEach((f) => f.wet && poly(g, f.pts(D, 0), shade(STONE, f.tone * 0.9), 1)));
+    p.boxes.forEach((w) => facesOf(state, p, w).forEach((f) => f.wet && poly(g, f.pts(D, 0), shade(STONE, f.tone * 0.9), 1)));
     // the mouths show only where the back wall's inner face looks toward the camera (a far bank)
     if (p.back !== 'west' && p.back !== 'north') return;
     const L = along(p.cell.x, p.cell.y, p.back);
@@ -255,11 +266,15 @@ export const drawCulvertSunk = (g: Graphics, state: State, win: ScreenWindow | n
   });
 };
 
-// Above ground: the walls' faces up to their tops, then the tops
+// Above ground: each wall's faces up to its top, then the top
 export const drawCulvertTops = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   culvertPieces(state, win).forEach((p) => {
-    p.boxes.forEach((r) => facesOf(state, p, r).forEach((f) => poly(g, f.pts(0, RISE), shade(STONE, f.tone), 1)));
-    p.boxes.forEach((r) => poly(g, quad(r, RISE), STONE, 1));
+    // back to front, so where walls meet at a corner the nearer one lies on top
+    const depth = (w: Wall) => w.r.x + w.r.w / 2 + w.r.y + w.r.h / 2;
+    [...p.boxes].sort((m, n) => depth(m) - depth(n)).forEach((w) => {
+      facesOf(state, p, w).forEach((f) => poly(g, f.pts(0), shade(STONE, f.tone), 1));
+      poly(g, quad(w.r, 0).map(([gx, gy]): P3 => [gx, gy, p.top(w, gx, gy)]), STONE, 1);
+    });
   });
 };
 
