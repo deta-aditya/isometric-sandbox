@@ -13,7 +13,7 @@ import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
 import { type State, canalStreamOf, culvertShape } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
-import { CHUNK, GROUND_KIND, REACH, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkPx, chunkSize, differs, terrainGrid } from './terrainField';
+import { CHUNK, GROUND_KIND, REACH, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkPx, changedBox, INFLUENCE, regionPixels, chunkSize, terrainGrid } from './terrainField';
 
 // The stream sides with stonework on them: plain culverts on a stream bank, canal outlets and inlets
 const streamPins = (state: State): readonly StreamPin[] =>
@@ -109,6 +109,29 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
     c.drawn = g;
   };
 
+  // Redraws the part of a chunk's picture around the changed tiles in box (or all of it when its size
+  // per tile changed, as when a stream first comes near)
+  const repaint = (key: string, cx: number, cy: number, g: TerrainGrid, box: Readonly<{ x0: number; y0: number; x1: number; y1: number }>): void => {
+    const c = chunks.get(key)!;
+    const { cw, ch } = chunkSize(g, cx, cy);
+    const P = chunkPx(g, cx, cy);
+    if (c.canvas.width !== cw * P || c.canvas.height !== ch * P) {
+      paint(key, cx, cy, g);
+      return;
+    }
+    const [x0, y0] = [cx * CHUNK, cy * CHUNK];
+    const px0 = Math.max(x0, box.x0 - INFLUENCE), py0 = Math.max(y0, box.y0 - INFLUENCE);
+    const px1 = Math.min(x0 + cw, box.x1 + INFLUENCE), py1 = Math.min(y0 + ch, box.y1 + INFLUENCE);
+    if (px1 <= px0 || py1 <= py0) {
+      c.drawn = g;
+      return;
+    }
+    const pixels = regionPixels(g, px0, py0, px1 - px0, py1 - py0, P, looks, ground);
+    c.canvas.getContext('2d')!.putImageData(new ImageData(pixels, (px1 - px0) * P, (py1 - py0) * P), (px0 - x0) * P, (py0 - y0) * P);
+    c.texture.source.update();
+    c.drawn = g;
+  };
+
   // state is the turned state the scene draws; win the part of the world to draw (null: all of it)
   const render = (state: State, win: ScreenWindow | null): void => {
     if (!from || from.terrain !== state.terrain || from.tiles !== state.tiles || from.culverts !== state.culverts || from.size !== state.size || from.ground !== state.ground) {
@@ -135,7 +158,18 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
         const seen = inWindow(win, { x: x0, y: y0, w: cw, h: ch }, 0);
         if (known) known.sprite.visible = seen;
         if (!seen) continue;
-        if (!known || differs(known.drawn, g, rx0, ry0, rx1, ry1)) paint(key, cx, cy, g);
+        if (!known) {
+          paint(key, cx, cy, g);
+          continue;
+        }
+        if (known.drawn === g) continue;
+        // only the tiles that changed (and as far around them as a change can show) are redrawn
+        const box = changedBox(known.drawn, g, x0 - INFLUENCE, y0 - INFLUENCE, x0 + cw + INFLUENCE, y0 + ch + INFLUENCE);
+        if (!box) {
+          known.drawn = g;
+          continue;
+        }
+        repaint(key, cx, cy, g, box);
       }
   };
 

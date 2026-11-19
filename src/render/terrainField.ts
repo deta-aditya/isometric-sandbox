@@ -115,6 +115,22 @@ export const differs = (a: TerrainGrid, b: TerrainGrid, x0: number, y0: number, 
   return false;
 };
 
+// The box of tiles (x0, y0 to x1, y1, ends exclusive) whose kind, stream or pins differ between two grids
+// of the same size within a range, or null when none do
+export const changedBox = (a: TerrainGrid, b: TerrainGrid, x0: number, y0: number, x1: number, y1: number) => {
+  let [bx0, by0, bx1, by1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let y = Math.max(0, y0); y < Math.min(a.h, y1); y++)
+    for (let x = Math.max(0, x0); x < Math.min(a.w, x1); x++) {
+      const i = y * a.w + x;
+      if (a.kinds[i] === b.kinds[i] && a.stream[i] === b.stream[i] && a.pins[i] === b.pins[i]) continue;
+      bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x + 1); by1 = Math.max(by1, y + 1);
+    }
+  return bx0 === Infinity ? null : { x0: bx0, y0: by0, x1: bx1, y1: by1 };
+};
+// How far a changed tile can change the picture around it, in tiles: the terrain blend reaches 3, a
+// stream's blur 2 plus its lowering 1, a pool 1.5 and an inlet's rise 2 (plus its lowering)
+export const INFLUENCE = 4;
+
 // The normal distribution's cumulative function (Abramowitz and Stegun 7.1.26, error under 1.5e-7)
 const phi = (x: number): number => {
   const z = Math.abs(x) / Math.SQRT2;
@@ -148,7 +164,17 @@ export const chunkPx = (g: TerrainGrid, cx: number, cy: number): number => {
 
 export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: readonly TerrainLook[], ground: TerrainLook): Uint8ClampedArray<ArrayBuffer> => {
   const { cw, ch } = chunkSize(g, cx, cy);
-  const P = chunkPx(g, cx, cy);
+  return regionPixels(g, cx * CHUNK, cy * CHUNK, cw, ch, chunkPx(g, cx, cy), looks, ground);
+};
+
+// The picture of any rectangle of tiles (x0, y0, cw by ch) at P pixels per tile: exactly the pixels the
+// whole chunk's picture has there, so a changed part of a chunk can be redrawn on its own. P is the
+// chunk's own size (chunkPx), so a part of a stream chunk is worked out the stream's way even where no
+// stream is near that part.
+export const regionPixels = (
+  g: TerrainGrid, x0: number, y0: number, cw: number, ch: number, P: number,
+  looks: readonly TerrainLook[], ground: TerrainLook,
+): Uint8ClampedArray<ArrayBuffer> => {
   const pw = cw * P, ph = ch * P;
   const out = new Uint8ClampedArray(pw * ph * 4);
   const lookOf = (k: number): TerrainLook => (k === GROUND_KIND ? ground : looks[k]!);
@@ -161,14 +187,15 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   const put = (i: number, r: number, gr: number, b: number) => {
     out[i] = r; out[i + 1] = gr; out[i + 2] = b; out[i + 3] = 255;
   };
-  const x0 = cx * CHUNK, y0 = cy * CHUNK;
 
   // A stream sinks: each pixel shows a lowered point up to half a tile up and to the left of it, so a
   // chunk with a stream near is worked out over one more tile on those sides (M), then the stream pass
   // writes the chunk's own pixels. Without a stream near, the extended picture is the chunk itself.
-  const near = streamNear(g, x0, y0, cw, ch);
+  const near = P === STREAM_PX;
+  // (and one more tile on the other sides, so smooth reads near the edge never run out of picture: a part
+  // of a chunk then comes out exactly as the whole chunk has it)
   const M = near ? 1 : 0;
-  const ex0 = x0 - M, ey0 = y0 - M, ecw = cw + M, ech = ch + M, epw = ecw * TERRAIN_PX, eph = ech * TERRAIN_PX;
+  const ex0 = x0 - M, ey0 = y0 - M, ecw = cw + 2 * M, ech = ch + 2 * M, epw = ecw * TERRAIN_PX, eph = ech * TERRAIN_PX;
   const ext = near ? new Uint8ClampedArray(epw * eph * 4) : out;
   const putE = (i: number, r: number, gr: number, b: number) => {
     ext[i] = r; ext[i + 1] = gr; ext[i + 2] = b; ext[i + 3] = 255;
@@ -247,8 +274,9 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   const sxs = spans(ecw, ex0, STREAM_SIGMA, 2, P), sys = spans(ech, ey0, STREAM_SIGMA, 2, P);
   // the strips of water pinned against stonework near this chunk (0.6 of a tile in from the pinned side)
   const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [], pools: [number, number][] = [], raises: [number, number][] = [];
-  for (let y = Math.max(0, ey0 - 2); y < Math.min(g.h, ey0 + ech + 2); y++)
-    for (let x = Math.max(0, ex0 - 2); x < Math.min(g.w, ex0 + ecw + 2); x++) {
+  // (gathered from 3 tiles around: a pool reaches 1.5 tiles and an inlet's rise 2)
+  for (let y = Math.max(0, ey0 - 3); y < Math.min(g.h, ey0 + ech + 3); y++)
+    for (let x = Math.max(0, ex0 - 3); x < Math.min(g.w, ex0 + ecw + 3); x++) {
       const bits = g.pins[y * g.w + x]!;
       if (bits & 1) strips.push([x, y, x + 0.6, y + 1]);
       if (bits & 2) strips.push([x, y, x + 1, y + 0.6]);
@@ -447,7 +475,18 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
     for (let px = 0; px < pw; px++) {
       const k = kind[py * pw + px]!;
       if (k < 0) continue;
-      const differs = (x: number, y: number) => x >= 0 && y >= 0 && x < pw && y < ph && kind[y * pw + x]! >= 0 && kind[y * pw + x] !== k;
+      // a neighbor past this picture's edge is sampled on its own, so the edge is found the same way
+      // whether this is a whole chunk or a part of one (and across chunk seams)
+      const kindAt = (x: number, y: number): number => {
+        if (x >= 0 && y >= 0 && x < pw && y < ph) return kind[y * pw + x]!;
+        const nx = x0 + (x + 0.5) / P, ny = y0 + (y + 0.5) / P, tx = Math.floor(nx), ty = Math.floor(ny);
+        if (tx < 0 || ty < 0 || tx >= g.w || ty >= g.h || !anyStream(g, tx - 3, ty - 3, tx + 4, ty + 4)) return -1;
+        return sample(nx, ny);
+      };
+      const differs = (x: number, y: number) => {
+        const n = kindAt(x, y);
+        return n >= 0 && n !== k;
+      };
       if (!differs(px - 1, py) && !differs(px + 1, py) && !differs(px, py - 1) && !differs(px, py + 1)) continue;
       const wx = x0 + (px + 0.5) / P, wy = y0 + (py + 0.5) / P;
       let sr = 0, sg = 0, sb = 0;

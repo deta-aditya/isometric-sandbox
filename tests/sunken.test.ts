@@ -130,3 +130,45 @@ ok('things that float sit at the water\'s surface on a canal or stream, stand on
   assert.ok(Math.max(...natural) - Math.min(...natural) > Math.max(...pinned) - Math.min(...pinned), `natural ${natural}`);
   ok(`next to a culvert or outlet the water reaches straight up to the stone (starts at ${pinned.map((v) => v.toFixed(2)).join(', ')}; a natural bank wanders: ${natural.map((v) => v.toFixed(2)).join(', ')})`);
 }
+
+// A changed part of a chunk is redrawn on its own: its picture must match the whole chunk's there exactly
+{
+  const { regionPixels, chunkPx, STREAM_PX: SP } = await import('../src/render/terrainField.ts');
+  const tiles = [] as { x: number; y: number }[];
+  for (let x = 2; x < 20; x++) for (let y = 8; y < 11; y++) tiles.push({ x, y });
+  for (let y = 0; y < 24; y++) tiles.push({ x: 12, y });
+  const terr = [{ x: 5, y: 5, defId: 'moss' }, { x: 6, y: 5, defId: 'moss' }, { x: 14, y: 14, defId: 'moss' }];
+  const kinds = (id: string) => (id === 'moss' ? 0 : GROUND_KIND);
+  const looks = [{ color: 0x557744 }];
+  const g = terrainGrid(terr, 32, 32, kinds, tiles, [{ x: 12, y: 11, side: 'north' }, { x: 12, y: 11, side: 'pool' }, { x: 12, y: 11, side: 'raise' }]);
+  assert.equal(chunkPx(g, 0, 0), SP);
+  const whole = chunkPixels(g, 0, 0, looks, { color: GRASS });
+  for (const [rx, ry, rw, rh] of [[9, 6, 7, 7], [0, 0, 5, 4], [10, 9, 1, 1], [20, 20, 12, 12]] as const) {
+    const part = regionPixels(g, rx, ry, rw, rh, SP, looks, { color: GRASS });
+    let worst = 0;
+    for (let y = 0; y < rh * SP; y++)
+      for (let x = 0; x < rw * SP; x++)
+        for (let n = 0; n < 3; n++) worst = Math.max(worst, Math.abs(part[(y * rw * SP + x) * 4 + n]! - whole[((ry * SP + y) * 32 * SP + rx * SP + x) * 4 + n]!));
+    assert.ok(worst <= 1, `part at ${rx},${ry} differs by ${worst}`);
+  }
+  ok('a part of a chunk redrawn on its own matches the whole chunk\'s picture there');
+}
+
+// Painting one stream tile redraws only the patch around it, and quickly (it used to redraw whole chunks)
+{
+  const { regionPixels, changedBox, INFLUENCE, STREAM_PX: SP } = await import('../src/render/terrainField.ts');
+  const before = [] as { x: number; y: number }[];
+  for (let x = 2; x < 20; x++) for (let y = 8; y < 11; y++) before.push({ x, y });
+  const a = terrainGrid([], 32, 32, () => GROUND_KIND, before, []);
+  const b = terrainGrid([], 32, 32, () => GROUND_KIND, [...before, { x: 20, y: 9 }], []);
+  const box = changedBox(a, b, -INFLUENCE, -INFLUENCE, 32 + INFLUENCE, 32 + INFLUENCE)!;
+  assert.deepEqual(box, { x0: 20, y0: 9, x1: 21, y1: 10 });
+  const side = 1 + 2 * INFLUENCE;
+  assert.ok((side * side) / (32 * 32) < 0.1, 'the patch is under a tenth of a chunk');
+  regionPixels(b, 16, 5, side, side, SP, [], { color: GRASS }); // warm up
+  const t0 = performance.now();
+  for (let i = 0; i < 3; i++) regionPixels(b, 16, 5, side, side, SP, [], { color: GRASS });
+  const ms = (performance.now() - t0) / 3;
+  assert.ok(ms < 120, `a one-tile patch took ${ms.toFixed(0)} ms`);
+  ok(`painting one stream tile redraws a ${side} by ${side} tile patch, not the whole chunk (${ms.toFixed(0)} ms)`);
+}
