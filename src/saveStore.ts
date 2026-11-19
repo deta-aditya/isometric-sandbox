@@ -105,7 +105,7 @@ export const decodeGame = (text: string | null): Loaded | null => {
   }
 
   const banks = new Set<string>();
-  const culverts: Edge[] = [];
+  const culverts: NonNullable<ReturnType<typeof culvert>>[] = [];
   for (const raw of list(data.culverts)) {
     const c = culvert(raw);
     if (!c || !edgeInBounds(size, c) || banks.has(edgeKey(c))) drop();

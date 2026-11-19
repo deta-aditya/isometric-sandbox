@@ -86,6 +86,12 @@ const waterScene = (g: Graphics, size: number, tiles: readonly Readonly<{ x: num
 // A 2x2 pool in a patch of grass, for the canal and stream icons
 const waterPatch = (g: Graphics, id: string): Container =>
   waterScene(g, 4, cellsOf({ x: 1, y: 1, w: 2, h: 2 }).map((c) => ({ ...c, defId: id })));
+// A canal meeting a stream, with an outlet or inlet on the edge between them
+const jointPatch = (g: Graphics, kind: 'outlet' | 'inlet'): Container =>
+  waterScene(g, 4, [
+    ...[0, 1].flatMap((x) => [1, 2].map((y) => ({ x, y, defId: kind === 'outlet' ? 'canal' : 'stream' }))),
+    ...[2, 3].flatMap((x) => [1, 2].map((y) => ({ x, y, defId: kind === 'outlet' ? 'stream' : 'canal' }))),
+  ], [{ axis: 'y', x: 2, y: 1, kind }, { axis: 'y', x: 2, y: 2, kind }]);
 // The end of a short canal with a culvert on its far bank
 const culvertPatch = (g: Graphics): Container =>
   waterScene(g, 3, [{ x: 1, y: 0, defId: 'canal' }, { x: 1, y: 1, defId: 'canal' }, { x: 1, y: 2, defId: 'canal' }], [{ axis: 'y', x: 1, y: 1 }]);
@@ -170,7 +176,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
       patch(g, item.w, item.h, GRASS);
       return drawObject(g, { defId: item.id, rotation: 0, x: 0, y: 0, alpha: 1 });
     case 'culvert':
-      return culvertPatch(g);
+      return item.piece ? jointPatch(g, item.piece) : culvertPatch(g);
     case 'paint':
       return paintPreview(g, item.color);
     case 'terrain':

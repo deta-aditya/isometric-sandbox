@@ -64,7 +64,7 @@ const hint = (item: CatalogItem, state: State): string => {
     case 'tile':
       return 'drag to paint';
     case 'culvert':
-      return 'drag along a bank';
+      return item.piece ? 'drag where a canal meets a stream' : 'drag along a bank';
     case 'wall':
       return state.wallMode === 'square' ? 'Square · drag a rectangle' : 'Line · drag along grid lines';
     case 'opening':

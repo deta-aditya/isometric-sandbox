@@ -47,4 +47,9 @@ export const oldTerrainTile = (t: unknown): string | null => {
   return typeof id === 'string' && Object.hasOwn(TILE_TO_TERRAIN, id) ? (TILE_TO_TERRAIN[id] ?? null) : null;
 };
 
-export const culvert = (e: unknown): Edge | null => (edge(e) ? { axis: e.axis, x: e.x, y: e.y } : null);
+// A culvert edge keeps its kind (a canal outlet or inlet); an unknown kind reads as a plain culvert
+export const culvert = (e: unknown): (Edge & { kind?: 'outlet' | 'inlet' }) | null => {
+  if (!edge(e)) return null;
+  const kind = (e as { kind?: unknown }).kind;
+  return kind === 'outlet' || kind === 'inlet' ? { axis: e.axis, x: e.x, y: e.y, kind } : { axis: e.axis, x: e.x, y: e.y };
+};

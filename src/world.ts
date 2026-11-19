@@ -13,6 +13,8 @@ import {
   isTerrain,
   getPaint,
   type Rotation,
+  type CulvertPiece,
+  culvertItemOf,
   turn,
   type OpeningDef,
   trayItemOf,
@@ -92,7 +94,7 @@ export type Pieces = Readonly<{
   walls: readonly WallSegment[];
   tiles: readonly Tile[];
   terrain: readonly TerrainCell[];
-  culverts: readonly Edge[];
+  culverts: readonly CulvertEdge[];
 }>;
 
 // Copied things and the cell a paste is held by (the middle of them), plus the marks they came from
@@ -181,7 +183,7 @@ export type State = Readonly<{
   tiles: readonly Tile[];
   terrain: readonly TerrainCell[]; // the ground under floors, paths, water and roads, where it differs from `ground`
   ground: string; // the terrain id of every tile with no terrain entry (chosen at New game; part of the world)
-  culverts: readonly Edge[]; // culverts on canal banks
+  culverts: readonly CulvertEdge[]; // culverts on water banks, canal outlets and inlets
   walls: readonly WallSegment[];
   nextId: number;
   hover: Cell | null; // cell under the pointer
@@ -217,7 +219,7 @@ export type EraseTarget =
   | Readonly<{ kind: 'terrain'; target: TerrainCell }>
   | Readonly<{ kind: 'wall'; target: WallSegment }>
   | Readonly<{ kind: 'opening'; target: WallSegment }>
-  | Readonly<{ kind: 'culvert'; target: Edge }>;
+  | Readonly<{ kind: 'culvert'; target: CulvertEdge }>;
 
 export type Action =
   | { type: 'hover'; cell: Cell | null; point: Point | null }
@@ -307,7 +309,7 @@ export type GameWorld = Readonly<{
   terrain: readonly TerrainCell[];
   ground: string;
   walls: readonly WallSegment[];
-  culverts: readonly Edge[];
+  culverts: readonly CulvertEdge[];
   nextId: number;
   rotation: Rotation;
 }>;
@@ -569,22 +571,45 @@ export const bankOf = (s: State, e: Edge): Bank | null => {
   return a ? { cell: before, side: e.axis === 'x' ? 'south' : 'east' } : { cell: after, side: e.axis === 'x' ? 'north' : 'west' };
 };
 
-export type CulvertPlan = Readonly<{ edges: readonly Edge[]; valid: boolean }>;
+// A culvert edge: a plain culvert on a bank, or a canal outlet or inlet where a canal meets a stream
+export type CulvertEdge = Edge & Readonly<{ kind?: CulvertPiece }>;
 
-export const culvertPlan = (s: State): CulvertPlan | null => {
-  if (s.tool !== 'build' || !s.point || getItem(s.selectedId).kind !== 'culvert') return null;
-  const here = nearestEdge(s.point).edge;
-  const edges = s.drag?.mode === 'culvert' ? edgeRun(s.drag.start, here) : [here];
-  return { edges, valid: edges.every((e) => { const b = bankOf(s, e); return b !== null && canPaint(s, b.cell); }) };
+// The canal and stream cells on either side of an edge, if it lies between a canal and a stream
+export const canalStreamOf = (s: State, e: Edge): Readonly<{ canal: Cell; stream: Cell }> | null => {
+  const [a, b]: [Cell, Cell] = e.axis === 'x' ? [{ x: e.x, y: e.y - 1 }, { x: e.x, y: e.y }] : [{ x: e.x - 1, y: e.y }, { x: e.x, y: e.y }];
+  const [ta, tb] = [tileAt(s, a)?.defId, tileAt(s, b)?.defId];
+  if (ta === 'canal' && tb === 'stream') return { canal: a, stream: b };
+  if (ta === 'stream' && tb === 'canal') return { canal: b, stream: a };
+  return null;
 };
 
-export const culvertAt = (s: State, e: Edge): Edge | undefined => s.culverts.find((c) => sameEdge(c, e));
+// Whether a culvert edge of this kind fits here: a plain culvert on a bank (water on one side, land on
+// the other), an outlet or inlet between a canal and a stream
+export const culvertFits = (s: State, e: CulvertEdge): boolean => {
+  if (e.kind) return canalStreamOf(s, e) !== null;
+  const b = bankOf(s, e);
+  return b !== null && canPaint(s, b.cell);
+};
+
+export type CulvertPlan = Readonly<{ edges: readonly CulvertEdge[]; valid: boolean }>;
+
+export const culvertPlan = (s: State): CulvertPlan | null => {
+  const item = getItem(s.selectedId);
+  if (s.tool !== 'build' || !s.point || item.kind !== 'culvert') return null;
+  const here = nearestEdge(s.point).edge;
+  const run = s.drag?.mode === 'culvert' ? edgeRun(s.drag.start, here) : [here];
+  const edges = run.map((e): CulvertEdge => (item.piece ? { ...e, kind: item.piece } : e));
+  return { edges, valid: edges.every((e) => culvertFits(s, e)) };
+};
+
+export const culvertAt = (s: State, e: Edge): CulvertEdge | undefined => s.culverts.find((c) => sameEdge(c, e));
 
 // A culvert goes as a whole, like a span of door: the straight unbroken run of culvert edges through this one
 export const culvertRun = (s: State, e: Edge): readonly Edge[] => {
   const walk = (dir: 1 | -1): Edge[] => {
     const out: Edge[] = [];
-    for (let next = stepEdge(e, dir); culvertAt(s, next); next = stepEdge(next, dir)) out.push(next);
+    const kind = culvertAt(s, e)?.kind;
+    for (let next = stepEdge(e, dir); culvertAt(s, next) && culvertAt(s, next)?.kind === kind; next = stepEdge(next, dir)) out.push(next);
     return out;
   };
   return [...walk(-1).reverse(), e, ...walk(1)];
@@ -1311,7 +1336,7 @@ export const placePieces = (s: State, p: Pieces): State | null => {
     tiles: [...walled.tiles.filter((t) => !at.has(cellKey(t))), ...p.tiles],
     terrain: [...walled.terrain.filter((t) => !ground.has(cellKey(t))), ...withoutGround(walled.ground, p.terrain)],
   };
-  if (!p.culverts.every((c) => !culvertAt(floored, c) && bankOf(floored, c) !== null)) return null;
+  if (!p.culverts.every((c) => !culvertAt(floored, c) && culvertFits(floored, c))) return null;
   const culverted: State = { ...floored, culverts: [...floored.culverts, ...p.culverts] };
   return p.objects.reduce<State | null>(
     (acc, o) => (acc && canPlaceObject(acc, o) ? { ...acc, objects: [...acc.objects, o] } : null),
@@ -1491,7 +1516,7 @@ export const sourceItem = (hit: EraseTarget): string => {
     case 'opening':
       return hit.target.opening ? trayItemOf(hit.target.opening) : hit.target.styleId;
     case 'culvert':
-      return 'culvert';
+      return culvertItemOf(hit.target.kind);
   }
 };
 

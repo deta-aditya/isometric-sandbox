@@ -60,3 +60,72 @@ assert.equal(on('duck', null), 0);
 assert.equal(on('footbridge', 'stream'), 0);
 assert.equal(on('oak', 'canal'), 0);
 ok('things that float sit at the water\'s surface on a canal or stream, stand on the ground on land, and the footbridge never sinks');
+
+// ===== Canal outlets and inlets (#17c) =====
+{
+  const { initialHistory, step } = await import('../src/history.ts');
+  const { culvertFits, culvertRun, emptyWorld, eraseTarget } = await import('../src/world.ts');
+  const { toView, fromView } = await import('../src/view.ts');
+  const { encodeGame, decodeGame } = await import('../src/saveStore.ts');
+  type A = Parameters<typeof step>[1];
+  const run = (h: ReturnType<typeof step>, ...a: A[]) => a.reduce(step, h);
+  const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
+  const drag = (a: [number, number], b: [number, number]): A[] => [{ type: 'hover', ...pt(...a) }, { type: 'press', ...pt(...a) }, { type: 'hover', ...pt(...b) }, { type: 'release' }];
+  // a canal (x 4..7) meeting a stream (x 8..10), rows 5..7; the edge between them is x = 8
+  let h = step(initialHistory, { type: 'replaceWorld', world: emptyWorld(sizeOf(20, 20)) });
+  h = run(h, { type: 'select', id: 'canal' }, ...[5, 6, 7].flatMap((y) => drag([4.5, y + 0.5], [7.5, y + 0.5])));
+  h = run(h, { type: 'select', id: 'stream' }, ...[5, 6, 7].flatMap((y) => drag([8.5, y + 0.5], [10.5, y + 0.5])));
+  const s0 = h.state;
+  const joint = { axis: 'y' as const, x: 8, y: 6 };
+  assert.ok(culvertFits(s0, { ...joint, kind: 'outlet' }) && culvertFits(s0, { ...joint, kind: 'inlet' }));
+  assert.ok(!culvertFits(s0, joint), 'a plain culvert needs land on one side');
+  assert.ok(!culvertFits(s0, { axis: 'y', x: 4, y: 6, kind: 'outlet' }), 'an outlet needs a stream on the other side');
+  ok('an outlet or inlet fits only where a canal meets a stream, and a plain culvert does not fit there');
+
+  h = run(h, { type: 'select', id: 'canal-outlet' }, ...drag([8, 5.2], [8, 7.8]), { type: 'cancel' });
+  assert.equal(h.state.culverts.length, 3);
+  assert.ok(h.state.culverts.every((c) => c.kind === 'outlet'));
+  // a plain culvert on the canal's north bank next to it is its own run
+  h = run(h, { type: 'select', id: 'culvert' }, ...drag([5.2, 5], [7.8, 5]), { type: 'cancel' });
+  assert.equal(culvertRun(h.state, joint).length, 3);
+  assert.equal(culvertRun(h.state, { axis: 'x', x: 6, y: 5 }).length, 3);
+  ok('dragging an outlet places a run of outlet edges, and a culvert run beside it stays separate');
+
+  [1, 2, 3].forEach((v) => {
+    const seen = toView({ ...h.state, view: v as 1 });
+    assert.equal(seen.culverts.filter((c) => c.kind === 'outlet').length, 3, `view ${v}`);
+    assert.equal(fromView(seen).culverts, h.state.culverts);
+  });
+  ok('outlets keep their kind through camera turns');
+
+  const back = decodeGame(encodeGame({ ...emptyWorld(sizeOf(20, 20)), tiles: h.state.tiles, culverts: h.state.culverts }))!.world;
+  assert.deepEqual(back.culverts.map((c) => c.kind ?? 'culvert').sort(), ['culvert', 'culvert', 'culvert', 'outlet', 'outlet', 'outlet']);
+  const odd = JSON.parse(encodeGame({ ...emptyWorld(sizeOf(20, 20)), culverts: [{ axis: 'x', x: 3, y: 3 }] }));
+  odd.culverts[0].kind = 'teleporter';
+  assert.equal(decodeGame(JSON.stringify(odd))!.world.culverts[0]!.kind, undefined);
+  ok('saves keep outlets and inlets; an unknown kind reads as a plain culvert');
+
+  const picked = eraseTarget({ ...h.state, tool: 'picker' }, { x: 8, y: 6 }, { x: 8.02, y: 6.5 });
+  assert.equal(picked?.kind, 'culvert');
+  assert.equal((picked as { target: { kind?: string } }).target.kind, 'outlet');
+  ok('pointing at an outlet picks it');
+}
+
+// the stream is flattened against stonework: along a pinned bank the water starts right at the stone, in
+// a straight line, where a natural bank wanders and slopes
+{
+  const strip = []; for (let x = 0; x < 16; x++) for (let y = 6; y < 8; y++) strip.push({ x, y });
+  const W2 = 16 * TERRAIN_PX;
+  const starts = (pins: { x: number; y: number; side: 'north' }[]) => {
+    const img = chunkPixels(terrainGrid([], 16, 16, () => GROUND_KIND, strip, pins), 0, 0, [], { color: GRASS });
+    return [6.5, 7.5, 8.5].map((cx) => {
+      const col = Math.round(cx * TERRAIN_PX);
+      for (let y = 4 * TERRAIN_PX; y < 9 * TERRAIN_PX; y++) { const i = (y * W2 + col) * 4; if (img[i + 2]! > img[i]! + 40) return y / TERRAIN_PX; }
+      return -1;
+    });
+  };
+  const natural = starts([]), pinned = starts([6, 7, 8, 9].map((x) => ({ x, y: 6, side: 'north' as const })));
+  assert.ok(pinned.every((v) => Math.abs(v - 6) < 0.13), `pinned ${pinned}`);
+  assert.ok(Math.max(...natural) - Math.min(...natural) > Math.max(...pinned) - Math.min(...pinned), `natural ${natural}`);
+  ok(`next to a culvert or outlet the water reaches straight up to the stone (starts at ${pinned.map((v) => v.toFixed(2)).join(', ')}; a natural bank wanders: ${natural.map((v) => v.toFixed(2)).join(', ')})`);
+}

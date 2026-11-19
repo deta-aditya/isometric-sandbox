@@ -174,7 +174,10 @@ export type TileDef = Base & Readonly<{ kind: 'tile'; color: number; bank?: numb
 export type TerrainDef = Base & Readonly<{ kind: 'terrain'; color: number; specks?: readonly number[] }>;
 // A culvert sits on a canal bank (a grid edge between water and land), like a door sits on a wall:
 // holes in the bank wall and the bank closing in at a V, so the water reads as running under the ground
-export type CulvertDef = Base & Readonly<{ kind: 'culvert' }>;
+// An edge piece on water: a plain culvert on a bank, or (#17c) a canal outlet or inlet on the edge where a
+// canal meets a stream. `piece` is the kind stored on the edge (none for a plain culvert).
+export type CulvertPiece = 'outlet' | 'inlet';
+export type CulvertDef = Base & Readonly<{ kind: 'culvert'; piece?: CulvertPiece }>;
 // Paint is a color layer on one side of a wall, over the wall's material. A null color is Plain:
 // it strips the paint so the side shows its material again.
 export type PaintDef = Base & Readonly<{ kind: 'paint'; color: number | null }>;
@@ -1157,6 +1160,8 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'water', id: 'canal', name: 'Canal', color: 0x2f7fb8, bank: 0xa8a29e },
   { kind: 'tile', group: 'water', id: 'stream', name: 'Stream', color: 0x3b93a8, bank: 0xc8b07a },
   { kind: 'culvert', group: 'waterside', id: 'culvert', name: 'Culvert' },
+  { kind: 'culvert', group: 'waterside', id: 'canal-outlet', name: 'Canal outlet', piece: 'outlet' },
+  { kind: 'culvert', group: 'waterside', id: 'canal-inlet', name: 'Canal inlet', piece: 'inlet' },
 
   // Building: walls
   { kind: 'wall', group: 'walls', id: 'plaster', name: 'Plaster wall', color: 0xe7e5e4, floor: 'wood-floor' },
@@ -1547,3 +1552,6 @@ export const partsOf = (def: ObjectDef, r: Rotation): readonly Part[] => {
   turnedParts.set(key, parts);
   return parts;
 };
+
+// The catalog item for a culvert edge by its stored kind
+export const culvertItemOf = (piece: CulvertPiece | undefined): string => (piece === 'outlet' ? 'canal-outlet' : piece === 'inlet' ? 'canal-inlet' : 'culvert');

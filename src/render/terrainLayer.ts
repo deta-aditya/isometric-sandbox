@@ -11,9 +11,23 @@
 import { Container, Matrix, Sprite, Texture } from 'pixi.js';
 import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
-import type { State } from '../world';
+import { type State, bankOf, canalStreamOf } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
-import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
+import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
+
+// The stream sides with stonework on them: plain culverts on a stream bank, canal outlets and inlets
+const streamPins = (state: State): readonly StreamPin[] =>
+  state.culverts.flatMap((e): StreamPin[] => {
+    if (e.kind) {
+      const cs = canalStreamOf(state, e);
+      if (!cs) return [];
+      const { stream: st, canal: c } = cs;
+      return [{ ...st, side: c.x < st.x ? 'west' : c.x > st.x ? 'east' : c.y < st.y ? 'north' : 'south' }];
+    }
+    const b = bankOf(state, e);
+    if (!b) return [];
+    return state.tiles.some((t) => t.x === b.cell.x && t.y === b.cell.y && t.defId === 'stream') ? [{ ...b.cell, side: b.side }] : [];
+  });
 
 type Chunk = { sprite: Sprite; canvas: HTMLCanvasElement; texture: Texture; drawn: TerrainGrid };
 
@@ -33,7 +47,7 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
     return looks.length - 1;
   };
 
-  let from: Readonly<{ terrain: State['terrain']; tiles: State['tiles']; size: Size; ground: string }> | null = null;
+  let from: Readonly<{ terrain: State['terrain']; tiles: State['tiles']; culverts: State['culverts']; size: Size; ground: string }> | null = null;
   let grid: TerrainGrid | null = null;
   let ground: TerrainLook = { color: 0 };
 
@@ -76,13 +90,13 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
 
   // state is the turned state the scene draws; win the part of the world to draw (null: all of it)
   const render = (state: State, win: ScreenWindow | null): void => {
-    if (!from || from.terrain !== state.terrain || from.tiles !== state.tiles || from.size !== state.size || from.ground !== state.ground) {
+    if (!from || from.terrain !== state.terrain || from.tiles !== state.tiles || from.culverts !== state.culverts || from.size !== state.size || from.ground !== state.ground) {
       // a new map or ground, or a turn of a non-square one: every picture starts over
       if (from && (from.size !== state.size || from.ground !== state.ground)) [...chunks.keys()].forEach(drop);
-      from = { terrain: state.terrain, tiles: state.tiles, size: state.size, ground: state.ground };
+      from = { terrain: state.terrain, tiles: state.tiles, culverts: state.culverts, size: state.size, ground: state.ground };
       ground = lookOf(state.ground) ?? { color: 0 };
       // streams are drawn in the ground picture too (they sink into it, see terrainField.ts)
-      grid = terrainGrid(state.terrain, state.size.w, state.size.h, kindOf, state.tiles.filter((t) => t.defId === 'stream'));
+      grid = terrainGrid(state.terrain, state.size.w, state.size.h, kindOf, state.tiles.filter((t) => t.defId === 'stream'), streamPins(state));
     }
     const g = grid!;
     for (let cy = 0; cy * CHUNK < g.h; cy++)

@@ -49,8 +49,12 @@ const valueNoise = (x: number, y: number): number => {
 export const GROUND_KIND = -1;
 export type TerrainLook = Readonly<{ color: number; specks?: readonly number[] }>;
 // kinds[y * w + x] is an index into the looks, or GROUND_KIND
-// stream[y * w + x] is 1 where a stream tile lies
-export type TerrainGrid = Readonly<{ w: number; h: number; kinds: Int16Array; stream: Uint8Array }>;
+// stream[y * w + x] is 1 where a stream tile lies; pins[y * w + x] marks the sides of a stream tile that
+// have stonework on them (a culvert's headwall, a canal outlet or inlet): 1 west, 2 north, 4 east, 8 south.
+// The stream is flattened against them: its water reaches straight up to the stone.
+export type TerrainGrid = Readonly<{ w: number; h: number; kinds: Int16Array; stream: Uint8Array; pins: Uint8Array }>;
+export type StreamPin = Readonly<{ x: number; y: number; side: 'west' | 'north' | 'east' | 'south' }>;
+const PIN_BIT = { west: 1, north: 2, east: 4, south: 8 } as const;
 
 export const terrainGrid = (
   cells: readonly Readonly<{ x: number; y: number; defId: string }>[],
@@ -58,6 +62,7 @@ export const terrainGrid = (
   h: number,
   kindOf: (defId: string) => number,
   streams: readonly Readonly<{ x: number; y: number }>[] = [],
+  streamPins: readonly StreamPin[] = [],
 ): TerrainGrid => {
   const kinds = new Int16Array(w * h).fill(GROUND_KIND);
   cells.forEach((c) => {
@@ -67,7 +72,11 @@ export const terrainGrid = (
   streams.forEach((c) => {
     if (c.x >= 0 && c.y >= 0 && c.x < w && c.y < h) stream[c.y * w + c.x] = 1;
   });
-  return { w, h, kinds, stream };
+  const pins = new Uint8Array(w * h);
+  streamPins.forEach((p) => {
+    if (p.x >= 0 && p.y >= 0 && p.x < w && p.y < h) pins[p.y * w + p.x]! |= PIN_BIT[p.side];
+  });
+  return { w, h, kinds, stream, pins };
 };
 
 // Off the map, a stream at the edge carries on, like terrain
@@ -96,7 +105,7 @@ export const differs = (a: TerrainGrid, b: TerrainGrid, x0: number, y0: number, 
   for (let y = Math.max(0, y0); y < Math.min(a.h, y1); y++)
     for (let x = Math.max(0, x0); x < Math.min(a.w, x1); x++) {
       const i = y * a.w + x;
-      if (a.kinds[i] !== b.kinds[i] || a.stream[i] !== b.stream[i]) return true;
+      if (a.kinds[i] !== b.kinds[i] || a.stream[i] !== b.stream[i] || a.pins[i] !== b.pins[i]) return true;
     }
   return false;
 };
@@ -221,13 +230,35 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   // The stream's own field at every pixel of the extended picture: a blur of its tiles plus a gentle
   // wobble, so its edge wanders instead of following the tiles. Its depth comes from the field.
   const sxs = spans(ecw, ex0, STREAM_SIGMA, 2), sys = spans(ech, ey0, STREAM_SIGMA, 2);
+  // the strips of water pinned against stonework near this chunk (0.6 of a tile in from the pinned side)
+  const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [];
+  for (let y = Math.max(0, ey0 - 2); y < Math.min(g.h, ey0 + ech + 2); y++)
+    for (let x = Math.max(0, ex0 - 2); x < Math.min(g.w, ex0 + ecw + 2); x++) {
+      const bits = g.pins[y * g.w + x]!;
+      if (bits & 1) strips.push([x, y, x + 0.6, y + 1]);
+      if (bits & 2) strips.push([x, y, x + 1, y + 0.6]);
+      if (bits & 4) strips.push([x + 0.4, y, x + 1, y + 1]);
+      if (bits & 8) strips.push([x, y + 0.4, x + 1, y + 1]);
+      // and the ground on the other side of the stonework stays level: no bank slopes down past a wall
+      if (bits & 1) dry.push([x - 1, y, x, y + 1]);
+      if (bits & 2) dry.push([x, y - 1, x + 1, y]);
+      if (bits & 4) dry.push([x + 1, y, x + 2, y + 1]);
+      if (bits & 8) dry.push([x, y + 1, x + 1, y + 2]);
+    }
   const field = new Float32Array(epw * eph);
   for (let py = 0; py < eph; py++)
     for (let px = 0; px < epw; px++) {
       let f = 0;
       for (const [yy, oy] of sys[py]!) for (const [xx, ox] of sxs[px]!) if (streamAt(g, xx, yy)) f += ox * oy;
       const wx = ex0 + (px + 0.5) / TERRAIN_PX, wy = ey0 + (py + 0.5) / TERRAIN_PX;
-      field[py * epw + px] = f + (valueNoise(wx * WOBBLE_SCALE, wy * WOBBLE_SCALE) - 0.5) * WOBBLE;
+      let wobble = (valueNoise(wx * WOBBLE_SCALE, wy * WOBBLE_SCALE) - 0.5) * WOBBLE;
+      // near stonework the edge is straight: the wobble fades out, and the strip itself is deep water
+      for (const [x0s, y0s, x1s, y1s] of strips) {
+        const d = Math.hypot(Math.max(x0s - wx, 0, wx - x1s), Math.max(y0s - wy, 0, wy - y1s));
+        if (d === 0) f = Math.max(f, 1.05);
+        if (d < 1.2) wobble *= 1 - (1 - d / 1.2) ** 2;
+      }
+      field[py * epw + px] = dry.some(([a, b, c, d]) => wx >= a && wx < c && wy >= b && wy < d) && !streamAt(g, Math.floor(wx), Math.floor(wy)) ? -1 : f + wobble;
     }
   // bilinear reads of the extended picture at a grid point (clamped to it)
   const at = (qx: number, qy: number) => {
@@ -267,6 +298,17 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
           for (let n = 0; n < 4; n++) {
             const d = depthAt(qx, qy);
             qx = wx - SINK * d; qy = wy - SINK * d;
+          }
+          // stonework on the near side of a stream (its east or south edge) stands in front of the water,
+          // so the ground just past it is not covered by the lowered water behind it
+          const cx = Math.floor(wx), cy = Math.floor(wy), qcx = Math.floor(qx), qcy = Math.floor(qy);
+          if ((qcx !== cx || qcy !== cy) && !streamAt(g, cx, cy) && qcx >= 0 && qcy >= 0 && qcx < g.w && qcy < g.h) {
+            const bits = g.pins[qcy * g.w + qcx]!;
+            if ((qcx < cx && bits & 4) || (qcy < cy && bits & 8)) {
+              const e = ((py + M * TERRAIN_PX) * epw + px + M * TERRAIN_PX) * 4;
+              put(i, ext[e]!, ext[e + 1]!, ext[e + 2]!);
+              continue;
+            }
           }
           const d = depthAt(qx, qy);
           let r = colorAt(qx, qy, 0), gr = colorAt(qx, qy, 1), b = colorAt(qx, qy, 2);
