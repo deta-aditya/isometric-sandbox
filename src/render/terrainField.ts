@@ -8,7 +8,7 @@
 // and thin paths read softer than a well-surrounded patch, and every border is a gradient. Terrains
 // blend straight into each other, corners come out round, and there is no stacking order to get wrong.
 
-import { TILE_H } from '../config';
+import { STREAM_DEPTH, TILE_H } from '../config';
 
 export const TERRAIN_PX = 8; // pixels per tile in a chunk picture
 export const CHUNK = 32; // tiles per chunk side
@@ -27,8 +27,7 @@ const SPECK_DENSITY = 0.07; // share of a fully flowery pixel that is a speck
 const STREAM_SIGMA = 0.62;
 const WOBBLE = 0.2; // how far the edge wanders (in field units)
 const WOBBLE_SCALE = 0.8; // how slowly it wanders (per tile)
-const STREAM_DEPTH_PX = 16;
-const SINK = STREAM_DEPTH_PX / TILE_H;
+const SINK = STREAM_DEPTH / TILE_H;
 const BANK_END = 0.72; // depth where the slope gives way to water
 const EARTH = [126, 98, 66] as const, WET = [96, 80, 58] as const, PEBBLE = [138, 128, 114] as const;
 const SHALLOW = [59, 147, 168] as const, DEEP = [40, 120, 140] as const;
@@ -53,8 +52,9 @@ export type TerrainLook = Readonly<{ color: number; specks?: readonly number[] }
 // have stonework on them (a culvert's headwall, a canal outlet or inlet): 1 west, 2 north, 4 east, 8 south.
 // The stream is flattened against them: its water reaches straight up to the stone.
 export type TerrainGrid = Readonly<{ w: number; h: number; kinds: Int16Array; stream: Uint8Array; pins: Uint8Array }>;
-export type StreamPin = Readonly<{ x: number; y: number; side: 'west' | 'north' | 'east' | 'south' }>;
-const PIN_BIT = { west: 1, north: 2, east: 4, south: 8 } as const;
+// side 'pool' marks a tile whose water is deep right across (inside a culvert), easing off around it
+export type StreamPin = Readonly<{ x: number; y: number; side: 'west' | 'north' | 'east' | 'south' | 'pool' }>;
+const PIN_BIT = { west: 1, north: 2, east: 4, south: 8, pool: 16 } as const;
 
 export const terrainGrid = (
   cells: readonly Readonly<{ x: number; y: number; defId: string }>[],
@@ -231,7 +231,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
   // wobble, so its edge wanders instead of following the tiles. Its depth comes from the field.
   const sxs = spans(ecw, ex0, STREAM_SIGMA, 2), sys = spans(ech, ey0, STREAM_SIGMA, 2);
   // the strips of water pinned against stonework near this chunk (0.6 of a tile in from the pinned side)
-  const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [];
+  const strips: [number, number, number, number][] = [], dry: [number, number, number, number][] = [], pools: [number, number][] = [];
   for (let y = Math.max(0, ey0 - 2); y < Math.min(g.h, ey0 + ech + 2); y++)
     for (let x = Math.max(0, ex0 - 2); x < Math.min(g.w, ex0 + ecw + 2); x++) {
       const bits = g.pins[y * g.w + x]!;
@@ -239,6 +239,7 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
       if (bits & 2) strips.push([x, y, x + 1, y + 0.6]);
       if (bits & 4) strips.push([x + 0.4, y, x + 1, y + 1]);
       if (bits & 8) strips.push([x, y + 0.4, x + 1, y + 1]);
+      if (bits & 16) pools.push([x, y]);
       // and the ground on the other side of the stonework stays level: no bank slopes down past a wall
       if (bits & 1) dry.push([x - 1, y, x, y + 1]);
       if (bits & 2) dry.push([x, y - 1, x + 1, y]);
@@ -257,6 +258,23 @@ export const chunkPixels = (g: TerrainGrid, cx: number, cy: number, looks: reado
         const d = Math.hypot(Math.max(x0s - wx, 0, wx - x1s), Math.max(y0s - wy, 0, wy - y1s));
         if (d === 0) f = Math.max(f, 1.05);
         if (d < 1.2) wobble *= 1 - (1 - d / 1.2) ** 2;
+      }
+      // a pool: deep across its tile, easing back to the stream's own depth over a tile and a half (only
+      // on the stream's own tiles, so it never spreads onto the land around)
+      if (pools.length && streamAt(g, Math.floor(wx), Math.floor(wy))) for (const [px0, py0] of pools) {
+        const d = Math.hypot(Math.max(px0 - wx, 0, wx - px0 - 1), Math.max(py0 - wy, 0, wy - py0 - 1));
+        if (d >= 1.5) continue;
+        // outside the pool's own tile it eases off toward land, so the stream keeps its earth bank there
+        let shore = 1;
+        if (d > 0) {
+          const cx = Math.floor(wx), cy = Math.floor(wy);
+          let near = 1;
+          for (let ny = cy - 1; ny <= cy + 1; ny++)
+            for (let nx = cx - 1; nx <= cx + 1; nx++)
+              if (!streamAt(g, nx, ny)) near = Math.min(near, Math.hypot(Math.max(nx - wx, 0, wx - nx - 1), Math.max(ny - wy, 0, wy - ny - 1)));
+          shore = Math.min(1, near / 0.9) ** 2;
+        }
+        f = Math.max(f, 1.05 * (1 - (d / 1.5) ** 1.5) * shore);
       }
       field[py * epw + px] = dry.some(([a, b, c, d]) => wx >= a && wx < c && wy >= b && wy < d) && !streamAt(g, Math.floor(wx), Math.floor(wy)) ? -1 : f + wobble;
     }

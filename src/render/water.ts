@@ -10,11 +10,12 @@
 // Like everything else this works from the turned state: the far banks are always west and north.
 import { Container, Graphics } from 'pixi.js';
 import { getTerrainDef, getTileDef, isTerrain } from '../catalog';
-import { CANAL_DEPTH, STREAM_SINK } from '../config';
+import { CANAL_DEPTH, STREAM_DEPTH, STREAM_SINK } from '../config';
 import type { State } from '../world';
-import { bankOf, canalStreamOf } from '../world';
+import { type CulvertShape, canalStreamOf, culvertShape } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
 import { type P3, drawBox, poly, quad, shade } from './shapes';
+import type { Rect } from '../geometry';
 import { type TerrainLook } from './terrainField';
 import { createTerrainLayer } from './terrainLayer';
 
@@ -39,19 +40,6 @@ const along = (x: number, y: number, side: Side) =>
     east: (u: number, v: number, z = 0): P3 => [x + 1 - u, y + v, z],
     south: (u: number, v: number, z = 0): P3 => [x + v, y + 1 - u, z],
   })[side];
-
-// The culverts on canal banks, with where their run starts and ends (for the V where the side banks close in)
-const canalCulverts = (state: State, wet: Cells) =>
-  state.culverts.flatMap((e) => {
-    if (e.kind) return [];
-    const b = bankOf(state, e);
-    if (!b || !wet.has(key(b.cell.x, b.cell.y))) return [];
-    const { x, y } = b.cell;
-    const across = b.side === 'west' || b.side === 'east';
-    const start = across ? !wet.has(key(x, y - 1)) : !wet.has(key(x - 1, y));
-    const end = across ? !wet.has(key(x, y + 1)) : !wet.has(key(x + 1, y));
-    return [{ x, y, side: b.side as Side, start, end }];
-  });
 
 // Canal outlets and inlets, by the canal cell they open and the side the stream is on, with where their
 // run starts and ends (for the wing walls)
@@ -79,7 +67,7 @@ export const drawCanalOpening = (g: Graphics, state: State, win: ScreenWindow | 
   inView(state, win).forEach((t) => poly(g, quad({ x: t.x, y: t.y, w: 1, h: 1 }, 0), 0xffffff, 1));
 };
 
-// Below ground: the water, the far banks' wall faces and their shadow on the water, culvert mouths
+// Below ground: the water, the far banks' wall faces and their shadow on the water, outlets and inlets
 export const drawCanalSunk = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   const cells = inView(state, win);
   if (cells.length === 0) return;
@@ -133,41 +121,15 @@ export const drawCanalSunk = (g: Graphics, state: State, win: ScreenWindow | nul
       poly(g, [L(far ? lip : 0.32, 0.04, D), L(far ? lip : 0.32, 0.96, D), L(0.5, 0.96, D), L(0.5, 0.04, D)], FOAM, 0.55);
     }
   });
-  canalCulverts(state, wet).forEach(({ x, y, side, start, end }) => {
-    if (!inWindow(win, { x, y, w: 1, h: 1 }, 0)) return;
-    const L = along(x, y, side);
-    if (side === 'west' || side === 'north') {
-      // a far bank: two arched pipe mouths in the wall face, each in a stone ring
-      const face = shade(bank, side === 'west' ? 0.5 : 0.66);
-      const arch = (vc: number, r: number, h: number): P3[] =>
-        Array.from({ length: 13 }, (_, k) => {
-          const t = (k * Math.PI) / 12;
-          return L(COP, vc + r * Math.cos(t), D - D * h * Math.sin(t));
-        });
-      [0.3, 0.7].forEach((vc) => {
-        poly(g, arch(vc, 0.19, 0.9), face, 1);
-        poly(g, arch(vc, 0.14, 0.7), PIPE, 1);
-      });
-      // where the side banks close in, the bank slopes down in a stone wedge
-      if (start) poly(g, [L(COP, 0), L(COP + 0.45, 0), L(COP, 0.32, D)], shade(bank, 0.66), 1);
-      if (end) poly(g, [L(COP, 1), L(COP + 0.45, 1), L(COP, 0.68, D)], shade(bank, 0.6), 1);
-    } else {
-      // a near bank: its wall is hidden, so the dark of the mouth shows on the water behind the lintel
-      // (the lowered water shows up to about a third of a tile short of the near edge)
-      poly(g, [L(0.32, 0, D), L(0.8, 0, D), L(0.8, 1, D), L(0.32, 1, D)], PIPE, 0.28);
-      poly(g, [L(0.32, 0.08, D), L(0.58, 0.08, D), L(0.58, 0.92, D), L(0.32, 0.92, D)], PIPE, 0.6);
-    }
-  });
 };
 
-// At ground level, on top: coping along every bank, a post on every land corner, culvert lintels
+// At ground level, on top: coping along every bank, a post on every land corner
 export const drawCanalTop = (g: Graphics, state: State, win: ScreenWindow | null): void => {
   const cells = inView(state, win);
   if (cells.length === 0) return;
   const wet = canalCells(state);
   const w = (x: number, y: number) => wet.has(key(x, y));
   const { bank = 0xa8a29e } = getTileDef('canal');
-  const lintels = new Set(canalCulverts(state, wet).filter((c) => c.side === 'south' || c.side === 'east').map((c) => `${c.x},${c.y},${c.side}`));
   const joints = canalJoints(state);
   const open = (x: number, y: number, side: Side) => joints.some((j) => j.x === x && j.y === y && j.side === side);
   cells.forEach(({ x, y }) => {
@@ -178,9 +140,6 @@ export const drawCanalTop = (g: Graphics, state: State, win: ScreenWindow | null
     ([[-1, -1, x, y], [1, -1, x + 1 - COP, y], [1, 1, x + 1 - COP, y + 1 - COP], [-1, 1, x, y + 1 - COP]] as const).forEach(([dx, dy, cx, cy]) => {
       if (!w(x + dx, y + dy)) poly(g, quad({ x: cx, y: cy, w: COP, h: COP }, 0), bank, 1);
     });
-    // a near-bank culvert: a wider, lighter lintel stone where the coping would be
-    if (lintels.has(`${x},${y},south`)) poly(g, quad({ x, y: y + 1 - COP * 1.5, w: 1, h: COP * 1.5 }, 0), shade(bank, 1.12), 1);
-    if (lintels.has(`${x},${y},east`)) poly(g, quad({ x: x + 1 - COP * 1.5, y, w: COP * 1.5, h: 1 }, 0), shade(bank, 1.12), 1);
   });
 };
 
@@ -203,39 +162,104 @@ export const drawJointTops = (g: Graphics, state: State, win: ScreenWindow | nul
   });
 };
 
-// A culvert on a stream bank: a stone headwall set into the bank, its top flush with the ground. On a far
-// bank its face drops to the stream's water, and the water line cuts across the pipe mouths about a
-// third of the way up, so the water runs into them; on a near bank the face looks away and only the
-// top shows. The stream is flattened against it (terrainField.ts), so the water reaches the stone.
-export const drawStreamCulverts = (g: Graphics, state: State, win: ScreenWindow | null): void => {
-  const stone = 0xa8a29e;
-  const S = -STREAM_SINK - 3; // the face reaches a little below the water line
-  const WL = -STREAM_SINK + 2; // the water line on the face
-  state.culverts.forEach((e) => {
-    if (e.kind) return;
-    const b = bankOf(state, e);
-    if (!b) return;
-    const water = state.tiles.find((t) => t.x === b.cell.x && t.y === b.cell.y);
-    if (!water || water.defId !== 'stream') return;
-    const { x, y } = b.cell;
-    if (!inWindow(win, { x, y, w: 1, h: 1 })) return;
-    const L = along(x, y, b.side);
-    const T = 0.1; // the top's depth into the stream cell
-    poly(g, [L(0, 0), L(0, 1), L(T, 1), L(T, 0)], stone, 1);
-    if (b.side !== 'west' && b.side !== 'north') return;
-    poly(g, [L(T, 0), L(T, 1), L(T, 1, S), L(T, 0, S)], shade(stone, b.side === 'west' ? 0.58 : 0.74), 1);
+// Culverts: stonework on the water tile at a channel's end (the shape comes from culvertShape in
+// world.ts). A back wall stands along the bank with a wall at either side where the bank turns, so the
+// channel's sides always end against stone: a U on a 1-wide channel, Ls at the corners of a wider end,
+// the back wall alone in between. The walls rise a little above the ground; their faces toward the water
+// drop to the water's surface, and two pipe mouths in the back wall sit half under water.
+//
+// Each wall is an upright box. What lies below ground is drawn into the masked sunk layer (it shows only
+// over water, like the canal's own walls); what stands above ground is drawn on top.
+const WALL = 0.14; // wall thickness, in tiles
+const RISE = 4; // how far the walls stand above the ground, in pixels
+const STONE = 0xb4ada3;
+// joined: the next tile along the edge (the after side) has a piece with the same back, so the back
+// walls run on and the end face between them is not drawn
+type Piece = CulvertShape & Readonly<{ depth: number; boxes: readonly Rect[]; joined: boolean }>;
+const culvertPieces = (state: State, win: ScreenWindow | null): readonly Piece[] =>
+  state.culverts.flatMap((e) => {
+    if (e.kind) return [];
+    const p = culvertShape(state, e);
+    if (!p || !inWindow(win, { x: p.cell.x, y: p.cell.y, w: 1, h: 1 })) return [];
+    const water = state.tiles.find((t) => t.x === p.cell.x && t.y === p.cell.y)?.defId;
+    const L = along(p.cell.x, p.cell.y, p.back);
+    // a box between two (u, v) corners, as a grid rect
+    const box = (u0: number, v0: number, u1: number, v1: number): Rect => {
+      const [a, b] = [L(u0, v0), L(u1, v1)];
+      return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
+    };
+    // v runs along the edge from the before side (v = 0) to the after side
+    const boxes = [box(0, 0, WALL, 1)];
+    if (p.before) boxes.push(box(0, 0, 1, WALL));
+    if (p.after) boxes.push(box(0, 1 - WALL, 1, 1));
+    const [ax, ay] = p.back === 'north' || p.back === 'south' ? [1, 0] : [0, 1];
+    const joined = state.culverts.some((c) => {
+      if (c.kind) return false;
+      const q = culvertShape(state, c);
+      return q !== null && q.back === p.back && q.cell.x === p.cell.x + ax && q.cell.y === p.cell.y + ay;
+    });
+    return [{ ...p, depth: water === 'stream' ? STREAM_DEPTH : CANAL_DEPTH, boxes, joined }];
+  });
+
+// The two faces of a box that look toward the camera (+y, then +x), each with whether water lies in
+// front of it (then it reaches down to the water) and the shade it takes
+const facesOf = (state: State, p: Piece, r: Rect) => {
+  const wet = (x: number, y: number) => state.tiles.some((t) => t.x === x && t.y === y && (t.defId === 'canal' || t.defId === 'stream'));
+  const { x, y } = p.cell;
+  const y1 = r.y + r.h, x1 = r.x + r.w;
+  // a face inside the tile looks onto the piece's own water; one on the tile's edge onto the neighbor
+  const southWet = y1 < y + 1 - 1e-6 || wet(Math.floor(r.x + r.w / 2), y + 1);
+  const eastWet = x1 < x + 1 - 1e-6 || wet(x + 1, Math.floor(r.y + r.h / 2));
+  // the back wall's end face toward a joined neighbor is hidden inside the wall that runs on
+  const back = r === p.boxes[0] && p.joined;
+  const across = p.back === 'north' || p.back === 'south';
+  return [
+    { pts: (z0: number, z1: number): P3[] => [[r.x, y1, z1], [x1, y1, z1], [x1, y1, z0], [r.x, y1, z0]], wet: southWet, tone: 0.76, hidden: back && !across },
+    { pts: (z0: number, z1: number): P3[] => [[x1, y1, z1], [x1, r.y, z1], [x1, r.y, z0], [x1, y1, z0]], wet: eastWet, tone: 0.58, hidden: back && across },
+  ].filter((f) => !f.hidden);
+};
+
+// Where pieces stand the sunk layer must show: the piece's tile, and the water just in front of it (the
+// side walls' faces reach a little over it, the way the water lies lower than the ground)
+export const drawCulvertOpening = (g: Graphics, state: State, win: ScreenWindow | null): void => {
+  culvertPieces(state, win).forEach((p) => {
+    const L = along(p.cell.x, p.cell.y, p.back);
+    const [fx, fy] = L(1.5, 0.5);
+    const front = state.tiles.some((t) => t.x === Math.floor(fx) && t.y === Math.floor(fy) && (t.defId === 'canal' || t.defId === 'stream'));
+    poly(g, [L(0, 0), L(0, 1), L(front ? 2 : 1, 1), L(front ? 2 : 1, 0)], 0xffffff, 1);
+  });
+};
+
+// Below ground: the wall faces down to the water, the pipe mouths in the back wall, a little foam
+export const drawCulvertSunk = (g: Graphics, state: State, win: ScreenWindow | null): void => {
+  culvertPieces(state, win).forEach((p) => {
+    const D = -p.depth;
+    p.boxes.forEach((r) => facesOf(state, p, r).forEach((f) => f.wet && poly(g, f.pts(D, 0), shade(STONE, f.tone * 0.9), 1)));
+    // the mouths show only where the back wall's inner face looks toward the camera (a far bank)
+    if (p.back !== 'west' && p.back !== 'north') return;
+    const L = along(p.cell.x, p.cell.y, p.back);
+    const lo = p.before ? WALL : 0, hi = p.after ? 1 - WALL : 1;
+    const zc = D - 1; // the mouths' middle is just under the water, so a bit under half of each shows
     const arch = (vc: number, r: number, h: number): P3[] =>
       Array.from({ length: 13 }, (_, k) => {
         const t = (k * Math.PI) / 12;
-        return L(T, vc + r * Math.cos(t), WL - 5 + h * Math.sin(t));
+        return L(WALL, vc + r * Math.cos(t), Math.max(D, zc + h * Math.sin(t)));
       });
-    [0.3, 0.7].forEach((vc) => {
-      poly(g, arch(vc, 0.2, 15), shade(stone, 0.6), 1);
-      poly(g, arch(vc, 0.15, 11), PIPE, 1);
+    const span = hi - lo;
+    [lo + span * 0.3, lo + span * 0.7].forEach((vc) => {
+      poly(g, arch(vc, span * 0.2, p.depth * 0.95), shade(STONE, 0.62), 1);
+      poly(g, arch(vc, span * 0.15, p.depth * 0.78), PIPE, 1);
+      // a ripple where the water comes out of the mouth
+      poly(g, [L(WALL, vc - span * 0.12, D), L(WALL, vc + span * 0.12, D), L(WALL + 0.07, vc + span * 0.12, D), L(WALL + 0.07, vc - span * 0.12, D)], FOAM, 0.45);
     });
-    // the water against the face, over the arches' feet, with a light ripple on top
-    poly(g, [L(T, -0.02, WL), L(T, 1.02, WL), L(T, 1.02, S - 1), L(T, -0.02, S - 1)], STREAM_WATER, 0.94);
-    poly(g, [L(T, 0, WL + 1), L(T, 1, WL + 1), L(T, 1, WL - 0.5), L(T, 0, WL - 0.5)], 0xaad7e1, 0.8);
+  });
+};
+
+// Above ground: the walls' faces up to their tops, then the tops
+export const drawCulvertTops = (g: Graphics, state: State, win: ScreenWindow | null): void => {
+  culvertPieces(state, win).forEach((p) => {
+    p.boxes.forEach((r) => facesOf(state, p, r).forEach((f) => poly(g, f.pts(0, RISE), shade(STONE, f.tone), 1)));
+    p.boxes.forEach((r) => poly(g, quad(r, RISE), STONE, 1));
   });
 };
 
@@ -256,7 +280,9 @@ export const waterLayers = (state: State, ground?: number): Container => {
   drawCanalOpening(opening, state, null);
   drawCanalTop(top, state, null);
   drawJointTops(top, state, null);
-  drawStreamCulverts(top, state, null);
+  drawCulvertSunk(sunk, state, null);
+  drawCulvertOpening(opening, state, null);
+  drawCulvertTops(top, state, null);
   box.addChild(sunk);
   box.mask = opening;
   out.addChild(box, opening, top);

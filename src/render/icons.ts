@@ -94,7 +94,7 @@ const jointPatch = (g: Graphics, kind: 'outlet' | 'inlet'): Container =>
   ], [{ axis: 'y', x: 2, y: 1, kind }, { axis: 'y', x: 2, y: 2, kind }]);
 // The end of a short canal with a culvert on its far bank
 const culvertPatch = (g: Graphics): Container =>
-  waterScene(g, 3, [{ x: 1, y: 0, defId: 'canal' }, { x: 1, y: 1, defId: 'canal' }, { x: 1, y: 2, defId: 'canal' }], [{ axis: 'y', x: 1, y: 1 }]);
+  waterScene(g, 3, [{ x: 1, y: 0, defId: 'canal' }, { x: 1, y: 1, defId: 'canal' }, { x: 1, y: 2, defId: 'canal' }], [{ axis: 'x', x: 1, y: 0 }]);
 
 // Fences show off better as a longer run than as a corner
 const PREVIEW_FENCE = 'picket-fence';

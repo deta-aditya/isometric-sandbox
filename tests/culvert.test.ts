@@ -39,3 +39,31 @@ ok('bulldozing a culvert removes the whole run and leaves the water');
 h = run(h, { type: 'undo' });
 assert.equal(h.state.culverts.length, 3);
 ok('undo brings the whole run back in one step');
+
+// #17d: culverts go only across a channel's end, and each tile's stonework takes its shape from the channel
+{
+  const { culvertFits, culvertShape } = await import('../src/world.ts');
+  const s = h.state; // the 3 wide canal above (y 0..2, x 2..7); y 0 lies on the map's north edge
+  // its west end (the y line at x = 2) takes culverts; its long south side (the x line at y = 3) does not
+  [0, 1, 2].forEach((y) => assert.ok(culvertFits(s, { axis: 'y', x: 2, y }), `west end at y ${y}`));
+  [2, 4, 7].forEach((x) => assert.ok(!culvertFits(s, { axis: 'x', x, y: 3 }), `south side at x ${x}`));
+  ok('a culvert fits across a channel\'s end but not along its side, even at a corner');
+
+  // across the 3 wide end: an L at each corner, the back wall alone in the middle
+  const shape = (y: number) => {
+    const p = culvertShape(s, { axis: 'y', x: 2, y })!;
+    return `${p.back}:${p.before ? 'B' : '-'}${p.after ? 'A' : '-'}`;
+  };
+  assert.deepEqual([0, 1, 2].map(shape), ['west:B-', 'west:--', 'west:-A']);
+  ok('across a wide end the corners are Ls and the middle is a back wall alone, also when placed alone');
+
+  // a 1 wide stream (x 12, y 4..9): its north end is a U
+  let k = run(h, { type: 'select', id: 'stream' }, { type: 'hover', ...pt(12.5, 4.5) }, { type: 'press', ...pt(12.5, 4.5) },
+    { type: 'hover', ...pt(12.5, 9.5) }, { type: 'release' });
+  const u = culvertShape(k.state, { axis: 'x', x: 12, y: 4 })!;
+  assert.ok(culvertFits(k.state, { axis: 'x', x: 12, y: 4 }) && u.back === 'north' && u.before && u.after);
+  assert.ok(!culvertFits(k.state, { axis: 'y', x: 12, y: 6 }), 'not on its side');
+  k = run(k, { type: 'select', id: 'culvert' }, { type: 'hover', ...pt(12.5, 4.03) }, { type: 'press', ...pt(12.5, 4.03) }, { type: 'release' });
+  assert.equal(k.state.culverts.length, 4);
+  ok('a 1 wide stream\'s end takes a U, and placing one there works');
+}

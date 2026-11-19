@@ -85,10 +85,10 @@ ok('things that float sit at the water\'s surface on a canal or stream, stand on
   h = run(h, { type: 'select', id: 'canal-outlet' }, ...drag([8, 5.2], [8, 7.8]), { type: 'cancel' });
   assert.equal(h.state.culverts.length, 3);
   assert.ok(h.state.culverts.every((c) => c.kind === 'outlet'));
-  // a plain culvert on the canal's north bank next to it is its own run
-  h = run(h, { type: 'select', id: 'culvert' }, ...drag([5.2, 5], [7.8, 5]), { type: 'cancel' });
+  // a plain culvert across the canal's other end is its own run
+  h = run(h, { type: 'select', id: 'culvert' }, ...drag([4, 5.2], [4, 7.8]), { type: 'cancel' });
   assert.equal(culvertRun(h.state, joint).length, 3);
-  assert.equal(culvertRun(h.state, { axis: 'x', x: 6, y: 5 }).length, 3);
+  assert.equal(culvertRun(h.state, { axis: 'y', x: 4, y: 6 }).length, 3);
   ok('dragging an outlet places a run of outlet edges, and a culvert run beside it stays separate');
 
   [1, 2, 3].forEach((v) => {

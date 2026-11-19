@@ -35,7 +35,7 @@ import {
   cellInBounds,
 } from '../world';
 import { createTerrainLayer } from './terrainLayer';
-import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawJointTops, drawStreamCulverts, waterLayers } from './water';
+import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawCulvertOpening, drawCulvertSunk, drawCulvertTops, drawJointTops, waterLayers } from './water';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
 import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
@@ -137,7 +137,9 @@ export const createScene = (world: Container) => {
     drawCanalOpening(canalMask, state, win);
     drawCanalTop(canalTop, state, win);
     drawJointTops(canalTop, state, win);
-    drawStreamCulverts(canalTop, state, win);
+    drawCulvertSunk(canalSunk, state, win);
+    drawCulvertOpening(canalMask, state, win);
+    drawCulvertTops(canalTop, state, win);
   };
   const guideLines = createGuides(guides);
 

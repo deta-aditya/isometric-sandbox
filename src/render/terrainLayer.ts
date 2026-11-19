@@ -11,7 +11,7 @@
 import { Container, Matrix, Sprite, Texture } from 'pixi.js';
 import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
-import { type State, bankOf, canalStreamOf } from '../world';
+import { type State, canalStreamOf, culvertShape } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
 import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type StreamPin, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
 
@@ -24,9 +24,14 @@ const streamPins = (state: State): readonly StreamPin[] =>
       const { stream: st, canal: c } = cs;
       return [{ ...st, side: c.x < st.x ? 'west' : c.x > st.x ? 'east' : c.y < st.y ? 'north' : 'south' }];
     }
-    const b = bankOf(state, e);
-    if (!b) return [];
-    return state.tiles.some((t) => t.x === b.cell.x && t.y === b.cell.y && t.defId === 'stream') ? [{ ...b.cell, side: b.side }] : [];
+    // a culvert piece on a stream: the water lies flat against its back wall and its side walls
+    const p = culvertShape(state, e);
+    if (!p || !state.tiles.some((t) => t.x === p.cell.x && t.y === p.cell.y && t.defId === 'stream')) return [];
+    const across = p.back === 'north' || p.back === 'south';
+    const sides: StreamPin['side'][] = [p.back, 'pool'];
+    if (p.before) sides.push(across ? 'west' : 'north');
+    if (p.after) sides.push(across ? 'east' : 'south');
+    return sides.map((side) => ({ ...p.cell, side }));
   });
 
 type Chunk = { sprite: Sprite; canvas: HTMLCanvasElement; texture: Texture; drawn: TerrainGrid };

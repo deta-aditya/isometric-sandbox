@@ -583,12 +583,45 @@ export const canalStreamOf = (s: State, e: Edge): Readonly<{ canal: Cell; stream
   return null;
 };
 
-// Whether a culvert edge of this kind fits here: a plain culvert on a bank (water on one side, land on
-// the other), an outlet or inlet between a canal and a stream
+// A plain culvert is a piece of stonework on the water tile behind its edge: a back wall along the edge,
+// and a side wall at either end where the tile beside it along the edge is not water. So it is a U on a
+// 1-wide channel, an L at the corners of a wider one's end, and a back wall alone in between. before is
+// the side toward lower x (or y) along the edge, after the side toward higher.
+export type CulvertShape = Readonly<{ cell: Cell; back: BankSide; before: boolean; after: boolean }>;
+const STEP: Readonly<Record<BankSide, readonly [number, number]>> = { west: [-1, 0], north: [0, -1], east: [1, 0], south: [0, 1] };
+export const culvertShape = (s: State, e: Edge): CulvertShape | null => {
+  const b = bankOf(s, e);
+  if (!b) return null;
+  const [ax, ay] = e.axis === 'x' ? [1, 0] : [0, 1];
+  const { x, y } = b.cell;
+  return { cell: b.cell, back: b.side, before: !wetAt(s, { x: x - ax, y: y - ay }), after: !wetAt(s, { x: x + ax, y: y + ay }) };
+};
+
+// Culverts go only at a channel's end: the water behind the edge must run on at least as far into the
+// channel as the end is wide. Along a channel's side the end is long and the water short, so it is not.
+const REACH_CAP = 64;
+export const atChannelEnd = (s: State, e: Edge): boolean => {
+  const b = bankOf(s, e);
+  if (!b) return false;
+  const [dx, dy] = STEP[b.side];
+  const [ax, ay] = e.axis === 'x' ? [1, 0] : [0, 1];
+  const wet = (x: number, y: number) => wetAt(s, { x, y });
+  const endAt = (x: number, y: number) => wet(x, y) && !wet(x + dx, y + dy);
+  const { x, y } = b.cell;
+  let wide = 1;
+  for (let k = 1; k <= REACH_CAP && endAt(x - ax * k, y - ay * k); k++) wide++;
+  for (let k = 1; k <= REACH_CAP && endAt(x + ax * k, y + ay * k); k++) wide++;
+  let long = 1;
+  while (long <= REACH_CAP && wet(x - dx * long, y - dy * long)) long++;
+  return long >= wide;
+};
+
+// Whether a culvert edge of this kind fits here: a plain culvert on a bank at a channel's end, an outlet
+// or inlet between a canal and a stream
 export const culvertFits = (s: State, e: CulvertEdge): boolean => {
   if (e.kind) return canalStreamOf(s, e) !== null;
   const b = bankOf(s, e);
-  return b !== null && canPaint(s, b.cell);
+  return b !== null && canPaint(s, b.cell) && atChannelEnd(s, e);
 };
 
 export type CulvertPlan = Readonly<{ edges: readonly CulvertEdge[]; valid: boolean }>;
