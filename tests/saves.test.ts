@@ -65,7 +65,7 @@ ok('a non-square world with every piece kind reads back exactly, build facing in
 const full = sizeOf(256, 256);
 const floor = (x: number, y: number, defId: string): Tile => ({ x, y, defId });
 const tiles = Array.from({ length: 256 * 256 }, (_, i) => floor(i % 256, Math.floor(i / 256), i % 256 < 128 ? 'wood-floor' : 'stone'));
-const fullWorld: GameWorld = { size: full, objects: [], tiles, terrain: [], walls: [], culverts: [], nextId: 1, rotation: 0 };
+const fullWorld: GameWorld = { size: full, objects: [], tiles, terrain: [], ground: 'grass', walls: [], culverts: [], nextId: 1, rotation: 0 };
 const text = encodeGame(fullWorld);
 assert.ok(text.length < 20_000, `a floored 256x256 map is ${text.length} bytes`);
 const read = decodeGame(text);
@@ -80,7 +80,7 @@ const tamper = (edit: (d: any) => void): ReturnType<typeof decodeGame> => { cons
 assert.equal(decodeGame(null), null);
 assert.equal(decodeGame('not json'), null);
 assert.equal(decodeGame('7'), null);
-assert.equal(tamper((d) => (d.version = 3)), null);
+assert.equal(tamper((d) => (d.version = 4)), null);
 assert.equal(tamper((d) => (d.version = 0)), null);
 [15, 257, 40.5, '40', null, 0, -20].forEach((bad) => assert.equal(tamper((d) => (d.w = bad)), null, `w ${String(bad)}`));
 assert.equal(tamper((d) => (d.h = 15)), null);
@@ -223,12 +223,12 @@ console.log('all passed');
 };
 reset();
 {
-  // a world with terrain, floors on top of some of it, in a non-square map: reads back exactly (version 2)
+  // a world with terrain, floors on top of some of it, in a non-square map: reads back exactly
   const wide = sizeOf(40, 20);
   const ground = [0, 1, 2].flatMap((y) => [3, 4, 5, 6].map((x) => ({ x, y, defId: y === 1 ? 'moss' : 'clay' })));
   const withGround: GameWorld = { ...built, size: wide, terrain: [...ground, { x: 39, y: 19, defId: 'flowery-grass' }, { x: 30, y: 7, defId: 'terrain-sand' }] };
   const text2 = encodeGame(withGround);
-  assert.equal(JSON.parse(text2).version, 2);
+  assert.equal(JSON.parse(text2).version, 3);
   const read2 = decodeGame(text2);
   assert.equal(read2?.dropped, 0);
   const byCell = (a: { x: number; y: number }, b: { x: number; y: number }) => a.y - b.y || a.x - b.x;
@@ -245,7 +245,7 @@ reset();
   const all = Array.from({ length: 256 * 256 }, (_, i) => ({ x: i % 256, y: Math.floor(i / 256), defId: i % 256 < 128 ? 'turf' : 'dry-grass' }));
   assert.ok(encodeGame({ ...fullWorld, size: big, tiles: [], terrain: all }).length < 20_000);
   assert.equal(decodeGame(encodeGame({ ...fullWorld, size: big, tiles: [], terrain: all }))?.world.terrain.length, 65536);
-  ok('a version 2 save round trips terrain (runs, palette) on a non-square map, and a full map stays small');
+  ok('a save round trips terrain (runs, palette) on a non-square map, and a full map stays small');
 
   // a save without a terrain field (version 2 written by hand) has none
   assert.deepEqual(decodeGame(JSON.stringify({ ...JSON.parse(text2), terrain: undefined }))?.world.terrain, []);
@@ -278,10 +278,10 @@ reset();
   assert.deepEqual(old.world.tiles.map((t) => `${t.x},${t.y}:${t.defId}`), ['0,0:stone', '1,0:stone']);
   assert.deepEqual([...old.world.terrain].sort(byCell).map((t) => `${t.x},${t.y}:${t.defId}`), ['2,0:terrain-gravel', '3,0:terrain-gravel', '4,0:terrain-gravel', '5,0:terrain-sand', '6,0:terrain-sand', '0,1:terrain-gravel']);
   assert.equal(old.dropped, 1); // the unknown tile
-  // a version 1 game with no terrain field at all is fine, and writes back as version 2
+  // a version 1 game with no terrain field at all is fine, and writes back as version 3
   const plain = decodeGame(JSON.stringify({ ...v1, tiles: { palette: ['stone'], runs: [0, 0, 2, 0] } }));
   assert.equal(plain?.world.terrain.length, 0);
-  assert.equal(JSON.parse(encodeGame(old.world)).version, 2);
+  assert.equal(JSON.parse(encodeGame(old.world)).version, 3);
   assert.deepEqual(normal(decodeGame(encodeGame(old.world))!.world), normal(old.world));
   // a version 1 save kept in the browser loads as before, through the index
   reset();
@@ -289,5 +289,22 @@ reset();
   store.set('iso-sandbox:save:1', JSON.stringify(v1));
   assert.equal(readIndex().length, 1);
   assert.equal(readGame(1)?.world.terrain.length, 6);
-  ok('a version 1 save loads with its gravel and sand tiles as terrain, and is written again as version 2');
+  ok('a version 1 save loads with its gravel and sand tiles as terrain, and is written again as version 3');
+
+  // version 3 holds the map's ground: it round trips, and versions 1 and 2 (and unknown grounds) are grass
+  const sandy: GameWorld = { ...fullWorld, size: sizeOf(20, 20), tiles: [], ground: 'terrain-sand', terrain: [{ x: 1, y: 1, defId: 'grass' }, { x: 2, y: 1, defId: 'moss' }] };
+  const sandText = encodeGame(sandy);
+  assert.equal(JSON.parse(sandText).ground, 'terrain-sand');
+  const sandBack = decodeGame(sandText);
+  assert.equal(sandBack?.world.ground, 'terrain-sand'); assert.equal(sandBack?.dropped, 0);
+  assert.deepEqual(sandBack?.world.terrain.map((t) => t.defId).sort(), ['grass', 'moss']); // grass is an entry on a sand map
+  assert.equal(writeGame(3, 'Sandy', sandy, 9), 'ok'); assert.equal(readGame(3)?.world.ground, 'terrain-sand');
+  const asGround = (ground: unknown, version = 3) => decodeGame(JSON.stringify({ ...JSON.parse(sandText), version, ground }))?.world.ground;
+  assert.equal(asGround('no-such-ground'), 'grass'); assert.equal(asGround('wood-floor'), 'grass'); assert.equal(asGround(7), 'grass'); assert.equal(asGround(undefined), 'grass');
+  assert.equal(asGround('terrain-sand', 2), 'grass'); assert.equal(asGround('terrain-sand', 1), 'grass');
+  assert.equal(decodeGame(JSON.stringify({ ...small, version: 2 }))?.world.ground, 'grass');
+  // entries equal to the ground are dropped (and counted) when reading
+  const same = decodeGame(JSON.stringify({ ...JSON.parse(sandText), terrain: { palette: ['terrain-sand', 'moss'], runs: [0, 0, 3, 0, 0, 1, 2, 1] } }));
+  assert.deepEqual(same?.world.terrain.map((t) => t.defId), ['moss', 'moss']); assert.equal(same?.dropped, 3);
+  ok('a version 3 save round trips the ground; versions 1 and 2 and unknown grounds load as grass; entries equal to the ground are dropped');
 }

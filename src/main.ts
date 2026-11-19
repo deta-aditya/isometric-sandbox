@@ -196,9 +196,9 @@ const enter = (game: GameWorld, next: (committed: World) => Session): void => {
 const leave = (): Promise<boolean> =>
   isDirty(session, history.committed) ? menu.askToSave({ name: session.name, neverSaved: session.saved === null, save }) : Promise.resolve(true);
 
-const newGame = async (name: string, w: number, h: number): Promise<boolean> => {
+const newGame = async (name: string, w: number, h: number, ground: string): Promise<boolean> => {
   if (!(await leave())) return false;
-  enter(emptyWorld(sizeOf(w, h)), () => newSession(name, session.autosaveMinutes));
+  enter(emptyWorld(sizeOf(w, h), ground), () => newSession(name, session.autosaveMinutes));
   return true;
 };
 

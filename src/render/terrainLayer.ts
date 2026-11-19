@@ -6,18 +6,18 @@
 //
 // Like the rest of the scene it draws the turned state, so a camera turn simply redraws what shows.
 // A chunk is redrawn only when its tiles (or the ring of tiles around it, which its blend reaches)
-// changed, and only while it lies in the drawn window. Chunks with no terrain draw nothing: the
-// grass ground fill under them is the same color.
+// changed, and only while it lies in the drawn window. Chunks of bare ground draw nothing: the ground
+// fill under them is the same color (unless the ground has specks, which only the pictures show).
 import { Container, Matrix, Sprite, Texture } from 'pixi.js';
 import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
 import type { State } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
-import { CHUNK, GRASS_KIND, TERRAIN_PX, type TerrainGrid, type TerrainLook, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
+import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type TerrainGrid, type TerrainLook, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
 
 type Chunk = { sprite: Sprite; canvas: HTMLCanvasElement; texture: Texture; drawn: TerrainGrid };
 
-export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null, grass: number) => {
+export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null) => {
   const container = new Container();
   const chunks = new Map<string, Chunk>();
   // Terrain kinds are numbered as they are first seen, so the grid stays small integers
@@ -27,14 +27,15 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
     const known = kinds.get(defId);
     if (known !== undefined) return known;
     const look = lookOf(defId);
-    if (!look) return GRASS_KIND;
+    if (!look) return GROUND_KIND;
     looks.push(look);
     kinds.set(defId, looks.length - 1);
     return looks.length - 1;
   };
 
-  let from: Readonly<{ terrain: State['terrain']; size: Size }> | null = null;
+  let from: Readonly<{ terrain: State['terrain']; size: Size; ground: string }> | null = null;
   let grid: TerrainGrid | null = null;
+  let ground: TerrainLook = { color: 0 };
 
   const drop = (key: string): void => {
     const c = chunks.get(key);
@@ -52,7 +53,7 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
       drop(key);
       c = undefined;
     }
-    const pixels = chunkPixels(g, cx, cy, looks, grass);
+    const pixels = chunkPixels(g, cx, cy, looks, ground);
     if (!c) {
       const canvas = document.createElement('canvas');
       canvas.width = pw;
@@ -75,9 +76,11 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
 
   // state is the turned state the scene draws; win the part of the world to draw (null: all of it)
   const render = (state: State, win: ScreenWindow | null): void => {
-    if (!from || from.terrain !== state.terrain || from.size !== state.size) {
-      if (from && from.size !== state.size) [...chunks.keys()].forEach(drop); // a new map, or a turn of a non-square one
-      from = { terrain: state.terrain, size: state.size };
+    if (!from || from.terrain !== state.terrain || from.size !== state.size || from.ground !== state.ground) {
+      // a new map or ground, or a turn of a non-square one: every picture starts over
+      if (from && (from.size !== state.size || from.ground !== state.ground)) [...chunks.keys()].forEach(drop);
+      from = { terrain: state.terrain, size: state.size, ground: state.ground };
+      ground = lookOf(state.ground) ?? { color: 0 };
       grid = terrainGrid(state.terrain, state.size.w, state.size.h, kindOf);
     }
     const g = grid!;
@@ -86,10 +89,10 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
         const key = `${cx},${cy}`;
         const { cw, ch } = chunkSize(g, cx, cy);
         const [x0, y0] = [cx * CHUNK, cy * CHUNK];
-        // the blend reaches a tile beyond the chunk, so its ring of neighbors counts too
-        const [rx0, ry0, rx1, ry1] = [x0 - 1, y0 - 1, x0 + cw + 1, y0 + ch + 1];
+        // the blend reaches a few tiles beyond the chunk, so that ring of neighbors counts too
+        const [rx0, ry0, rx1, ry1] = [x0 - REACH, y0 - REACH, x0 + cw + REACH, y0 + ch + REACH];
         const known = chunks.get(key);
-        if (!anyTerrain(g, rx0, ry0, rx1, ry1)) {
+        if (!ground.specks && !anyTerrain(g, rx0, ry0, rx1, ry1)) {
           drop(key);
           continue;
         }

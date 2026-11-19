@@ -56,7 +56,8 @@ import {
 export type ObjectPlacement = Rect & Readonly<{ defId: string; rotation: Rotation }>;
 export type ObjectEntity = ObjectPlacement & Readonly<{ id: number }>;
 export type Tile = Cell & Readonly<{ defId: string }>;
-// The ground under everything: at most one per cell, never `grass` (no entry is plain grass)
+// The ground under everything: at most one per cell, and only where it differs from the map's ground
+// (`State.ground`): a cell with no entry shows the ground, so an entry never holds the ground's own id
 export type TerrainCell = Readonly<{ x: number; y: number; defId: string }>;
 // A wall segment on one grid edge, optionally holding a door, window or arch
 // Paint on each side of a wall. `before` faces the cell at smaller x or y (north or west), `after`
@@ -178,7 +179,8 @@ export type State = Readonly<{
   size: Size; // the map's width and height in tiles (part of the world; in a view it is the view's frame)
   objects: readonly ObjectEntity[];
   tiles: readonly Tile[];
-  terrain: readonly TerrainCell[]; // the ground under floors, paths, water and roads
+  terrain: readonly TerrainCell[]; // the ground under floors, paths, water and roads, where it differs from `ground`
+  ground: string; // the terrain id of every tile with no terrain entry (chosen at New game; part of the world)
   culverts: readonly Edge[]; // culverts on canal banks
   walls: readonly WallSegment[];
   nextId: number;
@@ -266,6 +268,7 @@ export const initialState: State = {
   culverts: [],
   tiles: [],
   terrain: [],
+  ground: 'grass',
   walls: [],
   nextId: 1,
   hover: null,
@@ -302,13 +305,18 @@ export type GameWorld = Readonly<{
   objects: readonly ObjectEntity[];
   tiles: readonly Tile[];
   terrain: readonly TerrainCell[];
+  ground: string;
   walls: readonly WallSegment[];
   culverts: readonly Edge[];
   nextId: number;
   rotation: Rotation;
 }>;
 
-export const emptyWorld = (size: Size): GameWorld => ({ size, objects: [], tiles: [], terrain: [], walls: [], culverts: [], nextId: 1, rotation: 0 });
+export const emptyWorld = (size: Size, ground = 'grass'): GameWorld => ({ size, objects: [], tiles: [], terrain: [], ground, walls: [], culverts: [], nextId: 1, rotation: 0 });
+
+// An entry equal to the ground says nothing, so it is never stored
+export const withoutGround = <T extends { defId: string }>(ground: string, entries: readonly T[]): readonly T[] =>
+  entries.some((t) => t.defId === ground) ? entries.filter((t) => t.defId !== ground) : entries;
 
 // Takes the world state (what history holds), not the turned view state
 export const gameWorldOf = (s: State): GameWorld => ({
@@ -316,6 +324,7 @@ export const gameWorldOf = (s: State): GameWorld => ({
   objects: s.objects,
   tiles: s.tiles,
   terrain: s.terrain,
+  ground: s.ground,
   walls: s.walls,
   culverts: s.culverts,
   nextId: s.nextId,
@@ -954,21 +963,21 @@ const applyFloorFill = (s: State, fill: FloorFill | null, defId: string): State 
 
 // ===== Terrain =====
 // Painted with the round brush (a stroke is one undo step, like a floor drag) and filled like floors:
-// Shift + click spreads over the same terrain (bare grass counts as one terrain), Shift + Ctrl over any.
+// Shift + click spreads over the same terrain (bare ground counts as one terrain), Shift + Ctrl over any.
 // Real walls stop a fill and fences do not. Floors on top are ignored: the fill works on the terrain
 // layer under them. `cells` is what the fill would paint, in view space, for the preview.
 export type TerrainFill = Readonly<{ cells: readonly Cell[]; mode: FillMode }>;
 
-// Sets the terrain of many cells at once (the eraser `grass` takes it away). Cells off the map are
+// Sets the terrain of many cells at once (the map's own ground is the eraser: it takes the entry away). Cells off the map are
 // skipped; the state itself comes back when nothing changes, so a stroke over painted ground is free.
 const paintTerrain = (s: State, cells: readonly Cell[], defId: string): State => {
-  const erase = defId === 'grass';
+  const erase = defId === s.ground;
   const there = new Map(s.terrain.map((t) => [cellKey(t), t.defId]));
   const changed = new Map<string, Cell>();
   cells.forEach((c) => {
     if (!cellInBounds(s.size, c)) return;
     const key = cellKey(c);
-    if ((there.get(key) ?? 'grass') !== defId) changed.set(key, c);
+    if ((there.get(key) ?? s.ground) !== defId) changed.set(key, c);
   });
   if (changed.size === 0) return s;
   const kept = s.terrain.filter((t) => !changed.has(cellKey(t)));
@@ -1300,7 +1309,7 @@ export const placePieces = (s: State, p: Pieces): State | null => {
   const floored: State = {
     ...walled,
     tiles: [...walled.tiles.filter((t) => !at.has(cellKey(t))), ...p.tiles],
-    terrain: [...walled.terrain.filter((t) => !ground.has(cellKey(t))), ...p.terrain],
+    terrain: [...walled.terrain.filter((t) => !ground.has(cellKey(t))), ...withoutGround(walled.ground, p.terrain)],
   };
   if (!p.culverts.every((c) => !culvertAt(floored, c) && bankOf(floored, c) !== null)) return null;
   const culverted: State = { ...floored, culverts: [...floored.culverts, ...p.culverts] };
@@ -1486,6 +1495,10 @@ export const sourceItem = (hit: EraseTarget): string => {
   }
 };
 
+// Bare ground is no thing to move or remove, but the picker tool still builds it: it picks the map's ground (Q does not)
+const pickBareGround = (s: State, cell: Cell): State =>
+  cellInBounds(s.size, cell) && !hiddenUnderRoof(s, cell) ? select(s, s.ground) : s;
+
 // Starts building what a placed thing was built from, facing the same way if it is an object
 const pickFrom = (s: State, hit: EraseTarget): State => {
   const picked = select(s, sourceItem(hit));
@@ -1503,7 +1516,8 @@ export const replaceWorld = (s: State, w: GameWorld): State => ({
   size: w.size,
   objects: w.objects,
   tiles: w.tiles,
-  terrain: w.terrain,
+  terrain: withoutGround(w.ground, w.terrain),
+  ground: w.ground,
   walls: w.walls,
   culverts: w.culverts,
   nextId: w.nextId,
@@ -1584,7 +1598,7 @@ const updateInView = (state: State, action: Action): State => {
       // Picker: build what was clicked
       if (state.tool === 'picker') {
         const hit = eraseTarget(state, action.cell, action.point);
-        return hit ? pickFrom(state, hit) : state;
+        return hit ? pickFrom(state, hit) : pickBareGround(state, action.cell);
       }
       // Removing things is the bulldoze tool's job only
       if (state.tool === 'bulldoze') {

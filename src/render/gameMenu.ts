@@ -1,5 +1,6 @@
 // The game chip (top left), the Game panel under it, and the dialogs (new game, save first). DOM only:
 // it shows what main.ts gives it and reports what the player asked for; main.ts does the saving.
+import { CATALOG, getTerrainDef } from '../catalog';
 import { MAX_GRID, MIN_GRID } from '../config';
 import type { SaveEntry } from '../saveStore';
 import { AUTOSAVE_CHOICES, type AutosaveMinutes, NAME_MAX, type Session, chipState, cleanName, relativeTime } from '../session';
@@ -7,7 +8,7 @@ import { AUTOSAVE_CHOICES, type AutosaveMinutes, NAME_MAX, type Session, chipSta
 export type MenuActions = Readonly<{
   save: () => 'ok' | 'full';
   saveAs: (name: string) => 'ok' | 'full';
-  newGame: (name: string, w: number, h: number) => Promise<boolean>; // true once the new game has started
+  newGame: (name: string, w: number, h: number, ground: string) => Promise<boolean>; // true once the new game has started
   load: (id: number) => Promise<boolean>;
   rename: (id: number, name: string) => void;
   remove: (id: number) => void;
@@ -61,6 +62,10 @@ const PENCIL_SVG = svg("<path d='M4 20 l1 -4 L16 5 a2 2 0 0 1 3 3 L8 19 z'/><pat
 const TRASH_SVG = svg("<path d='M4 7 h16'/><path d='M9 7 V4 h6 v3'/><path d='M6 7 l1 13 h10 l1 -13'/><path d='M10 11 v6 M14 11 v6'/>", 14);
 
 const AUTOSAVE_LABEL = (m: AutosaveMinutes): string => (m === 0 ? 'Off' : `Every ${m} min`);
+// The twelve grounds a map can start on, in catalog order
+const GROUNDS = CATALOG.flatMap((i) => (i.kind === 'terrain' ? [i] : []));
+const css = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
+
 const GRID_ERROR = `Use a whole number from ${MIN_GRID} to ${MAX_GRID}`;
 const FULL_ERROR = "Couldn't save, storage is full";
 
@@ -319,6 +324,38 @@ export const createGameMenu = (actions: MenuActions) => {
     const shape = el('div', 'game-shape');
     const box = el('div', 'game-shape-box');
     shape.append(box);
+    // Ground: a grid of swatches, one pick (grass by default). Plain buttons, so Tab, Enter and Space work
+    let ground = 'grass';
+    const groundName = textEl('span', 'game-ground-name', getTerrainDef(ground).name);
+    const groundLabel = el('div', 'game-field-label game-ground-label');
+    groundLabel.append(textEl('span', '', 'Ground'), groundName);
+    const swatches = el('div', 'game-swatches');
+    swatches.setAttribute('role', 'group');
+    swatches.setAttribute('aria-label', 'Ground');
+    const swatchOf = new Map<string, HTMLButtonElement>();
+    const pick = (id: string): void => {
+      ground = id;
+      groundName.textContent = getTerrainDef(id).name;
+      swatchOf.forEach((b, key) => {
+        b.classList.toggle('selected', key === id);
+        b.setAttribute('aria-pressed', String(key === id));
+      });
+      box.style.background = css(getTerrainDef(id).color);
+    };
+    GROUNDS.forEach((def) => {
+      const b = el('button', 'game-swatch');
+      b.type = 'button';
+      b.title = def.name;
+      b.setAttribute('aria-label', def.name);
+      // flowery grass gets a few light dots over its green
+      b.style.backgroundColor = css(def.color);
+      b.classList.toggle('flowery', def.specks !== undefined);
+      b.addEventListener('click', () => pick(def.id));
+      swatchOf.set(def.id, b);
+      swatches.append(b);
+    });
+    const groundField = el('div', 'game-ground');
+    groundField.append(groundLabel, swatches);
     const error = textEl('div', 'game-error', GRID_ERROR);
     error.hidden = true;
 
@@ -344,7 +381,7 @@ export const createGameMenu = (actions: MenuActions) => {
       update();
       if (busy || w === null || h === null || !info) return;
       busy = true;
-      const started = await actions.newGame(cleanName(name.value, info.suggestedName), w, h);
+      const started = await actions.newGame(cleanName(name.value, info.suggestedName), w, h, ground);
       busy = false;
       if (started) newGameLayer?.close();
     };
@@ -362,8 +399,9 @@ export const createGameMenu = (actions: MenuActions) => {
       textEl('h2', 'game-dialog-title', 'New game'),
       nameField,
       sizes,
+      groundField,
       error,
-      textEl('div', 'game-hint', `${MIN_GRID} to ${MAX_GRID} tiles each side. Starts on empty grass.`),
+      textEl('div', 'game-hint', `${MIN_GRID} to ${MAX_GRID} tiles each side. Starts empty on this ground.`),
       buttons,
     );
     dialog.addEventListener('keydown', (e) => {
@@ -377,6 +415,7 @@ export const createGameMenu = (actions: MenuActions) => {
       newGameLayer = null;
       back.remove();
     });
+    pick(ground);
     update();
     name.focus();
     name.select();

@@ -107,19 +107,21 @@ export const createScene = (world: Container) => {
   // guides lie on the ground (walls and furniture stand in front of them); rulers sit outside the map, on top
   const guides = new Container();
   // terrain lies on the grass, under the grid lines and floors
-  const terrain = createTerrainLayer((id) => (isTerrain(id) ? getTerrainDef(id) : null), GRASS);
+  const terrain = createTerrainLayer((id) => (isTerrain(id) ? getTerrainDef(id) : null));
   world.addChild(ground, terrain.container, gridLines, floors, flats, guides, overlay, solids);
   const guideLines = createGuides(guides);
 
   // Ground and grid lines are one fill and long lines, redrawn only when the frame's size changes
   // (a new game or load, or turning a non-square map)
-  let groundSize: Size | null = null;
-  const drawGroundFor = (size: Size): void => {
-    if (size === groundSize) return;
-    groundSize = size;
+  // (and the fill takes the map's ground color)
+  let groundDrawn: Readonly<{ size: Size; color: number }> | null = null;
+  const drawGroundFor = (size: Size, groundId: string): void => {
+    const color = isTerrain(groundId) ? getTerrainDef(groundId).color : GRASS;
+    if (groundDrawn && groundDrawn.size === size && groundDrawn.color === color) return;
+    groundDrawn = { size, color };
     ground.clear();
     gridLines.clear();
-    drawGround(ground, size.w, size.h);
+    drawGround(ground, size.w, size.h, color);
     drawGridLines(gridLines, size.w, size.h);
   };
 
@@ -311,7 +313,7 @@ export const createScene = (world: Container) => {
 
   // win: the part of the world to draw (null draws all of it)
   const render = (state: State, win: ScreenWindow | null = null): void => {
-    drawGroundFor(state.size);
+    drawGroundFor(state.size, state.ground);
     terrain.render(state, win);
     const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state, win);
     gridLines.alpha = gridAlpha(state);

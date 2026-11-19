@@ -33,7 +33,7 @@ export const freeGameName = (names: readonly string[]): string => {
   return `Game ${n}`;
 };
 
-const EMPTY: World = { objects: [], tiles: [], terrain: [], walls: [], culverts: [], nextId: 1 };
+const EMPTY: World = { objects: [], tiles: [], terrain: [], ground: 'grass', walls: [], culverts: [], nextId: 1 };
 
 // Dirty means there is something a close would lose. A game never written is clean while empty. Lifting
 // a piece and putting it back is no change (sameWorld), and the build facing alone is not part of it.
@@ -41,7 +41,7 @@ const EMPTY: World = { objects: [], tiles: [], terrain: [], walls: [], culverts:
 let memo: Readonly<{ saved: World | null; committed: World; dirty: boolean }> | null = null;
 export const isDirty = (session: Session, committed: World): boolean => {
   if (memo && memo.saved === session.saved && memo.committed === committed) return memo.dirty;
-  const dirty = !sameWorld(committed, session.saved ?? EMPTY);
+  const dirty = !sameWorld(committed, session.saved ?? { ...EMPTY, ground: committed.ground });
   memo = { saved: session.saved, committed, dirty };
   return dirty;
 };

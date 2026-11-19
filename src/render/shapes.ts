@@ -39,8 +39,8 @@ export const drawTile = (g: Graphics, x: number, y: number, color = GRASS, line 
 
 // The open ground: one fill for the whole map, and the grid as long lines on their own layer,
 // so hiding the grid is just hiding that layer (and it is far cheaper than an outline per tile)
-export const drawGround = (g: Graphics, w: number, h: number): void => {
-  g.poly(quad({ x: 0, y: 0, w, h }, 0).flatMap(pt)).fill(GRASS);
+export const drawGround = (g: Graphics, w: number, h: number, color = GRASS): void => {
+  g.poly(quad({ x: 0, y: 0, w, h }, 0).flatMap(pt)).fill(color);
 };
 
 export const drawGridLines = (g: Graphics, w: number, h: number): void => {

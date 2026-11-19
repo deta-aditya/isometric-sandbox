@@ -3,7 +3,7 @@
 import { edgeKey } from './geometry';
 import { type Action, type GameWorld, type State, initialState, replaceWorld, settle, update } from './world';
 
-export type World = Pick<State, 'objects' | 'tiles' | 'terrain' | 'walls' | 'culverts' | 'nextId'>;
+export type World = Pick<State, 'objects' | 'tiles' | 'terrain' | 'ground' | 'walls' | 'culverts' | 'nextId'>;
 
 export type History = Readonly<{
   past: readonly World[];
@@ -17,11 +17,12 @@ export type HistoryAction = Action | { type: 'undo' } | { type: 'redo' } | { typ
 
 const LIMIT = 100;
 
-export const worldOf = (s: State): World => ({ objects: s.objects, tiles: s.tiles, terrain: s.terrain, walls: s.walls, culverts: s.culverts, nextId: s.nextId });
+export const worldOf = (s: State): World => ({ objects: s.objects, tiles: s.tiles, terrain: s.terrain, ground: s.ground, walls: s.walls, culverts: s.culverts, nextId: s.nextId });
 
 // Order-independent fingerprint, so lifting an object and putting it back counts as no change
 const fingerprint = (w: World): string =>
   [
+    w.ground,
     w.objects.map((o) => `${o.id}:${o.defId}:${o.x},${o.y}:${o.rotation}`).sort().join('|'),
     w.tiles.map((t) => `${t.x},${t.y}:${t.defId}`).sort().join('|'),
     w.terrain.map((t) => `${t.x},${t.y}:${t.defId}`).sort().join('|'),
@@ -30,7 +31,7 @@ const fingerprint = (w: World): string =>
   ].join('#');
 
 export const sameWorld = (a: World, b: World): boolean =>
-  (a.objects === b.objects && a.tiles === b.tiles && a.terrain === b.terrain && a.walls === b.walls && a.culverts === b.culverts) || fingerprint(a) === fingerprint(b);
+  (a.objects === b.objects && a.tiles === b.tiles && a.terrain === b.terrain && a.ground === b.ground && a.walls === b.walls && a.culverts === b.culverts) || fingerprint(a) === fingerprint(b);
 
 // A change is only committed once nothing is in progress: no drag, nothing being carried.
 // That makes a whole paint stroke, wall run, room or move a single undo step.

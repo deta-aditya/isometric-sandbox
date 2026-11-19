@@ -69,7 +69,7 @@ GAME = """() => {
   }
   for (const d of document.querySelectorAll('.game-dialog')) {
     const r = rect(d);
-    for (const e of d.querySelectorAll('button, input, h2, p, .game-shape, .game-error')) { const x = rect(e); if (x.width && (x.right > r.right + 0.5 || x.left < r.left - 0.5)) bad.push('dialog item sticks out: ' + (e.className || e.tagName)); }
+    for (const e of d.querySelectorAll('button, input, h2, p, .game-shape, .game-error, .game-swatches, .game-ground-label')) { const x = rect(e); if (x.width && (x.right > r.right + 0.5 || x.left < r.left - 0.5)) bad.push('dialog item sticks out: ' + (e.className || e.tagName)); }
   }
   return bad;
 }"""
@@ -95,6 +95,8 @@ def game_sweep(b, width):
     pg.fill(".game-dialog .game-number >> nth=0", ""); check("new game, empty width")
     pg.fill(".game-dialog .game-number >> nth=0", "300"); check("new game, width too big")
     pg.click(".game-squares .game-action:has-text('256')"); pg.fill(".game-dialog .game-number >> nth=1", "16"); check("new game, 256 by 16")
+    pg.click(".game-swatch[aria-label='Flowery grass']"); check("new game, ground picked (flowery grass)")
+    pg.click(".game-swatch[aria-label='Sand']"); check("new game, ground picked (sand)")
     pg.keyboard.press("Escape"); pg.keyboard.press("Escape"); check("closed again")
     # something unsaved: build one object, so the chip warns and New game asks first
     pg.click(".category:has-text('Scenery')"); pg.locator(".item").first.click(); pg.mouse.click(width // 2, 380); pg.wait_for_timeout(100)

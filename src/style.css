@@ -1167,6 +1167,64 @@ kbd {
   opacity: 0.85;
 }
 
+.game-ground {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.game-ground-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.game-ground-name {
+  color: #e2e8f0;
+}
+
+.game-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.game-swatch {
+  box-sizing: border-box;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.game-swatch.selected {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 1px;
+}
+
+.game-swatch:focus-visible {
+  outline: 2px solid #e2e8f0;
+  outline-offset: 1px;
+}
+
+.game-swatch.selected:focus-visible {
+  outline-color: #7dd3fc;
+}
+
+/* flowery grass: a few light dots over the green */
+.game-swatch.flowery {
+  background-image:
+    radial-gradient(circle at 22% 30%, #f4f1ea 0 2px, transparent 2.5px),
+    radial-gradient(circle at 70% 24%, #f2c94c 0 2px, transparent 2.5px),
+    radial-gradient(circle at 42% 72%, #e98fb5 0 2px, transparent 2.5px),
+    radial-gradient(circle at 82% 68%, #b69ae8 0 2px, transparent 2.5px);
+}
+
 .game-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -1214,4 +1272,10 @@ kbd {
   font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
+}
+
+@media (max-width: 420px) {
+  .game-swatches {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }

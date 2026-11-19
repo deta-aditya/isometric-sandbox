@@ -33,10 +33,11 @@ export const tile = (t: unknown): Tile | null => {
   return cell(x) && isKind(x.defId, 'tile') ? { x: x.x, y: x.y, defId: x.defId } : null;
 };
 
-// Terrain is every tile's ground: `grass` is the eraser, not a thing a tile can hold, so it is dropped
+// Terrain is every tile's ground. `grass` is an entry like any other (on a sand map it is painted over the sand);
+// dropping entries that equal a map's ground happens where the pieces land
 export const terrain = (t: unknown): TerrainCell | null => {
   const x = t as TerrainCell;
-  return cell(x) && isKind(x.defId, 'terrain') && x.defId !== 'grass' ? { x: x.x, y: x.y, defId: x.defId } : null;
+  return cell(x) && isKind(x.defId, 'terrain') ? { x: x.x, y: x.y, defId: x.defId } : null;
 };
 
 // Gravel and sand were path tiles before terrain existed. Older saves and blueprints get terrain at the

@@ -150,10 +150,10 @@ ok('the store reads back what it wrote, and drops what it cannot trust instead o
   const bare = JSON.parse(encodeBlueprints(saved2.state.blueprints));
   bare.blueprints[0].pieces = { terrain: [{ x: 0, y: 0, defId: 'moss' }, { x: 1, y: 0, defId: 'grass' }, { x: 2, y: 0, defId: 'no-such-ground' }, { x: 3, y: 0, defId: 'wood-floor' }, { x: 4, y: 0, defId: 'turf' }] };
   const kept = decodeBlueprints(JSON.stringify(bare));
-  assert.deepEqual(kept[0]!.pieces.terrain.map((t) => t.defId), ['moss', 'turf']);
-  bare.blueprints[0].pieces = { terrain: [{ x: 0, y: 0, defId: 'grass' }] };
+  assert.deepEqual(kept[0]!.pieces.terrain.map((t) => t.defId), ['moss', 'grass', 'turf']); // grass is a terrain like any other (a map's ground may be sand)
+  bare.blueprints[0].pieces = { terrain: [{ x: 0, y: 0, defId: 'no-such-ground' }] };
   assert.deepEqual(decodeBlueprints(JSON.stringify(bare)), []); // nothing left, so no blueprint
-  ok('stored terrain is validated: unknown ids and grass are dropped');
+  ok('stored terrain is validated: unknown ids and non-terrain are dropped, grass is kept');
 
   // a version 1 library had gravel and sand as tiles: they come back as terrain at the same cells
   const old = {

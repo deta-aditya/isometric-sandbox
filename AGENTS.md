@@ -40,7 +40,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 | `src/render/draw.ts`, `shapes.ts` | shell | Drawing primitives: boxes, walls, poles, arches, marks, medians |
 | `src/render/hud.ts` | shell | DOM HUD: category bar, tray, tool chip, filters, blueprint tray, help |
 | `src/render/gameMenu.ts` | shell | Game chip, Game panel, New game and save-first dialogs; owns Esc and Ctrl+S while anything is open |
-| `src/render/terrainField.ts` | shell (pure) | Terrain look as numbers: per-point weights from a box blur of each terrain's tiles, cubed and mixed; chunk pixels |
+| `src/render/terrainField.ts` | shell (pure) | Terrain look as numbers: per-point weights from a Gaussian blur of each terrain's tiles, to the power 1.5 and mixed; chunk pixels |
 | `src/render/terrainLayer.ts` | shell | Terrain chunk pictures (32 by 32 tiles) as sprites laid on the ground with the isometric slant; redraws only changed, visible chunks |
 | `src/render/icons.ts` | shell | Tray icons rendered from the game's own drawing |
 
@@ -51,7 +51,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 - **Drags** (`state.drag`) have modes; painting drags fill gaps with `cellsBetween`. A drag is one undo step.
 - **Rotation** (R) belongs to the world and persists across item picks.
 - **Map size** is `State.size` (a `Size` from `sizeOf(w, h)`, one object per size, so compare sizes by identity). In a view the state's size is that view's frame: on a non-square map width and height swap on odd views. Bounds helpers take the size (`cellInBounds(s.size, c)`), and so do `interiorCells` and `canopyCells`. `pointToView`/`pointFromView` take the world size; `guideFromView` takes the view's frame.
-- **Terrain** is its own layer (`State.terrain`, one per cell, none means grass), under floors and above the grass fill. Its look is not per-tile shapes: `terrainField.ts` blends terrains by weight, so there is no stacking order and no halo. Tune the blend with `BLUR` (reach) and the cube on the weights (sharpness). Filters are in `FILTER_ORDER` (catalog.ts), not `CATEGORIES` order, so Terrain is key 5 while the bar shows it after Flooring.
+- **Terrain** is its own layer (`State.terrain`, one per cell, none means grass), under floors and above the grass fill. Its look is not per-tile shapes: `terrainField.ts` blends terrains by weight, so there is no stacking order and no halo. Tune the blend with `SIGMA` and `REACH` (how far a tile's color spreads) and the 1.5 power on the weights (sharpness). Each map has a ground (`State.ground`); `terrain` holds only tiles that differ from it. Filters are in `FILTER_ORDER` (catalog.ts), not `CATEGORIES` order, so Terrain is key 5 while the bar shows it after Flooring.
 - **Drawing only what is on screen.** `main.ts` keeps a drawn window (the screen plus half a screen around it) and `scene.render(seen, window)` builds, sorts and draws only what can show in it (`inWindow` in `drawables.ts`, which allows tall things below the window to reach into it). Anything new that is drawn per piece must go through that filter, or a big map gets slow again.
 - **Saves** write the committed world (`history.committed` plus size and facing), never the state mid-drag. A change to what a save holds bumps the save version in `saveStore.ts` and adds an upgrade step so older saves still load.
 
