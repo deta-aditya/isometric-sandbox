@@ -25,3 +25,8 @@ export const GUIDES_ENABLED = false;
 export const LEVELS = ['1st floor', 'Roof'] as const;
 export const LEVEL_SHORT_NAMES: readonly string[] = ['1F', 'Roof']; // for narrow screens
 export const ROOF_LEVEL = LEVELS.length - 1;
+
+// Sunken water (#17): how far below the ground the canal's water lies, and how far something floating
+// on a stream sits down (the stream bed itself reaches 16 px at its deepest, see terrainField.ts)
+export const CANAL_DEPTH = 11;
+export const STREAM_SINK = 13;

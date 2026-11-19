@@ -35,10 +35,11 @@ import {
   cellInBounds,
 } from '../world';
 import { createTerrainLayer } from './terrainLayer';
+import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawStreamCulverts } from './water';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
 import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
-import { GRASS, drawBox, drawCulvertBank, drawEdgeStrip, drawFootprint, drawGridLines, drawGround, drawTile, drawVertex, drawWall, drawWash, drawWaterTile, shade } from './shapes';
+import { GRASS, poly, quad, drawBox, drawCulvertBank, drawEdgeStrip, drawFootprint, drawGridLines, drawGround, drawTile, drawVertex, drawWall, drawWash, drawWaterTile, shade } from './shapes';
 
 const VALID = 0x4ade80;
 const INVALID = 0xef4444;
@@ -65,14 +66,18 @@ const drawDrawable = (g: Graphics, d: Drawable): void => {
 };
 
 // Floors, water and culverts
-const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null): void => {
+// flatWater: draw water the old flat way (blueprint cards, which are too small for the sunken look);
+// in the game the canal has its own layers (water.ts) and the stream is part of the ground picture
+const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null, flatWater = false): void => {
   const wet = waterLookup(state.tiles); // neighbors are looked up in all tiles, so banks stay right at the window's edge
   state.tiles.forEach((t) => {
     if (!inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
     const { color, bank } = getTileDef(t.defId);
-    if (bank !== undefined) drawWaterTile(g, t.x, t.y, color, bank, waterSides(wet, t.x, t.y));
-    else drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
+    if (bank !== undefined) {
+      if (flatWater) drawWaterTile(g, t.x, t.y, color, bank, waterSides(wet, t.x, t.y));
+    } else drawTile(g, t.x, t.y, color, shade(color, 0.85), lines);
   });
+  if (!flatWater) return;
   // Culverts go on top of the water they belong to (one whose water was painted over just isn't shown)
   state.culverts.forEach((e) => {
     const b = bankOf(state, e);
@@ -91,7 +96,7 @@ export const drawPiecesPreview = (g: Graphics, base: State, p: Pieces): void => 
   for (let x = box.x; x < box.x + box.w; x++) for (let y = box.y; y < box.y + box.h; y++) drawTile(g, x, y, PREVIEW_GRASS, shade(PREVIEW_GRASS, 0.85));
   // terrain on a card is flat tiles in its color (the soft blend needs the full renderer)
   p.terrain.forEach((t) => drawTile(g, t.x, t.y, getTerrainDef(t.defId).color, shade(getTerrainDef(t.defId).color, 0.85)));
-  drawFloorsInto(g, state, 1);
+  drawFloorsInto(g, state, 1, null, true);
   const { sorted, flats } = buildDrawables(state);
   flats.forEach((d) => drawObject(g, d)); // roads and bays first, on the ground
   sorted.forEach((d) => drawDrawable(g, d));
@@ -108,7 +113,33 @@ export const createScene = (world: Container) => {
   const guides = new Container();
   // terrain lies on the grass, under the grid lines and floors
   const terrain = createTerrainLayer((id) => (isTerrain(id) ? getTerrainDef(id) : null));
-  world.addChild(ground, terrain.container, gridLines, floors, flats, guides, overlay, solids);
+  // the canal: what lies below ground is seen only through its opening (a mask), coping on top
+  const canalSunk = new Graphics();
+  const canalBox = new Container();
+  const canalMask = new Graphics();
+  const canalTop = new Graphics();
+  canalBox.addChild(canalSunk);
+  canalBox.mask = canalMask;
+  // grid lines stop at stream tiles (the canal covers them; its layers are above the grid)
+  const streamMask = new Graphics();
+  gridLines.setMask({ mask: streamMask, inverse: true });
+  world.addChild(ground, terrain.container, gridLines, streamMask, canalBox, canalMask, canalTop, floors, flats, guides, overlay, solids);
+  let canalDrawn: Readonly<{ tiles: State['tiles']; culverts: State['culverts']; win: ScreenWindow | null }> | null = null;
+  const drawCanal = (state: State, win: ScreenWindow | null): void => {
+    const c = canalDrawn;
+    if (c && c.tiles === state.tiles && c.culverts === state.culverts && c.win === win) return;
+    canalDrawn = { tiles: state.tiles, culverts: state.culverts, win };
+    [canalSunk, canalMask, canalTop, streamMask].forEach((g) => g.clear());
+    state.tiles.forEach((t) => {
+      if (t.defId === 'stream' && inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) poly(streamMask, quad({ x: t.x, y: t.y, w: 1, h: 1 }, 0), 0xffffff, 1);
+    });
+    // an empty mask would hide nothing anyway; keep one tiny shape off the map so the mask is valid
+    if (streamMask.bounds.width === 0) poly(streamMask, quad({ x: -9, y: -9, w: 0.01, h: 0.01 }, 0), 0xffffff, 1);
+    drawCanalSunk(canalSunk, state, win);
+    drawCanalOpening(canalMask, state, win);
+    drawCanalTop(canalTop, state, win);
+    drawStreamCulverts(canalTop, state, win);
+  };
   const guideLines = createGuides(guides);
 
   // Ground and grid lines are one fill and long lines, redrawn only when the frame's size changes
@@ -315,6 +346,7 @@ export const createScene = (world: Container) => {
   const render = (state: State, win: ScreenWindow | null = null): void => {
     drawGroundFor(state.size, state.ground);
     terrain.render(state, win);
+    drawCanal(state, win);
     const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state, win);
     gridLines.alpha = gridAlpha(state);
     gridLines.visible = gridLines.alpha > 0;

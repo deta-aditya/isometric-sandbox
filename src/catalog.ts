@@ -1396,6 +1396,11 @@ export const getTileDef = (id: string) => getOfKind('tile', id);
 export const getTerrainDef = (id: string) => getOfKind('terrain', id);
 export const isTerrain = (id: string): boolean => BY_ID.get(id)?.kind === 'terrain';
 export const isWaterTile = (id: string): boolean => getTileDef(id).bank !== undefined;
+
+// Things that float sit down at the water's surface when they are on water (#17); on land they stand
+// on the ground as before. The footbridge spans at ground level, so it does not float.
+const FLOATING: ReadonlySet<string> = new Set(['lily-pads', 'reeds', 'stepping-stones', 'rowboat', 'duck']);
+export const floats = (id: string): boolean => FLOATING.has(id);
 export const getWallStyle = (id: string) => getOfKind('wall', id);
 export const getPaint = (id: string) => getOfKind('paint', id);
 // Walls take paint (on glass it tints the pane); fences do not

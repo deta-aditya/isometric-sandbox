@@ -1,6 +1,6 @@
 // Pure: turns State into a depth-sorted list of things to draw, with previews merged in.
-import { type FenceLook, type GlassLook, getItem, getOpeningDef, getPaint, getObjectDef, getTileDef, getWallStyle, isFlat, isPole, isSmart, isWaterTile, layerOf, occupiedCells } from '../catalog';
-import { CUT_WALL_H, TILE_H, TILE_W, WALL_H } from '../config';
+import { type FenceLook, type GlassLook, floats, getItem, getOpeningDef, getPaint, getObjectDef, getTileDef, getWallStyle, isFlat, isPole, isSmart, isWaterTile, layerOf, occupiedCells } from '../catalog';
+import { CANAL_DEPTH, CUT_WALL_H, STREAM_SINK, TILE_H, TILE_W, WALL_H } from '../config';
 import { depthSort } from '../depthSort';
 import { type Cell, type Edge, type Rect, cellKey, cellsOf, edgeKey, edgeRect } from '../geometry';
 import type { WallPiece } from './shapes';
@@ -28,9 +28,10 @@ import {
   paintPlan,
   storedPaint,
   wallHeight,
+  tileAt,
 } from '../world';
 
-export type ObjectDrawable = ObjectPlacement & Readonly<{ kind: 'object'; alpha: number; joins?: readonly [boolean, boolean, boolean, boolean]; paved?: boolean }>;
+export type ObjectDrawable = ObjectPlacement & Readonly<{ kind: 'object'; alpha: number; joins?: readonly [boolean, boolean, boolean, boolean]; paved?: boolean; sink?: number }>;
 export type WallDrawable = Rect & WallPiece & Readonly<{ kind: 'wall' }>; // zero-thickness rect for sorting
 export type RoofDrawable = Rect & Readonly<{ kind: 'roof' }>;
 export type CanopyDrawable = Rect & Readonly<{ kind: 'canopy'; color: number; alpha: number }>;
@@ -196,6 +197,12 @@ const cellsInWindow = (win: ScreenWindow | null, size: Readonly<{ w: number; h: 
 };
 
 export const buildDrawables = (state: State, win: ScreenWindow | null = null) => {
+  // something that floats sits at the surface of the water it is on (by the tile at its corner cell)
+  const sinkOf = (o: Readonly<{ defId: string; x: number; y: number }>): number => {
+    if (!floats(o.defId)) return 0;
+    const t = tileAt(state, { x: o.x, y: o.y });
+    return t?.defId === 'canal' ? CANAL_DEPTH : t?.defId === 'stream' ? STREAM_SINK : 0;
+  };
   const roof = isRoofView(state);
   const interior = interiorCells(state.walls, state.size);
   const inside = (c: Cell) => interior.has(cellKey(c));
@@ -241,7 +248,7 @@ export const buildDrawables = (state: State, win: ScreenWindow | null = null) =>
   const placed: readonly ObjectDrawable[] = state.objects
     .filter((o) => inWindow(win, o))
     .filter((o) => !roof || !occupiedCells(o).some(inside)) // objects in enclosed rooms are under the roof
-    .map((o) => ({ ...o, kind: 'object', alpha: 1 }));
+    .map((o) => ({ ...o, kind: 'object', alpha: 1, sink: sinkOf(o) }));
   // flat ground pieces (roads, bays) lie under everything that stands, so they skip the depth sort
   const objects = placed.filter((o) => !isFlat(o.defId));
 
@@ -251,8 +258,8 @@ export const buildDrawables = (state: State, win: ScreenWindow | null = null) =>
   const valid = held ? held.valid : candidate !== null && buildPlan(state, candidate).ok;
   const ghostAlpha = valid ? 0.55 : 0.35;
   const allGhosts: readonly ObjectDrawable[] = held
-    ? held.ghost.objects.map((o) => ({ ...o, kind: 'object', alpha: ghostAlpha }))
-    : candidate ? [{ ...candidate, kind: 'object', alpha: ghostAlpha }] : [];
+    ? held.ghost.objects.map((o) => ({ ...o, kind: 'object', alpha: ghostAlpha, sink: sinkOf(o) }))
+    : candidate ? [{ ...candidate, kind: 'object', alpha: ghostAlpha, sink: sinkOf(candidate) }] : [];
   const ghosts = allGhosts.filter((o) => !isFlat(o.defId));
   // roads first, then the markings painted on them; a ghost goes on top of its own layer. A smart
   // piece (a median) learns which sides meet one of its kind, ghosts included, so a drag joins up live.

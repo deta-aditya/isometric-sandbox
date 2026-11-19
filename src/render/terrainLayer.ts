@@ -13,7 +13,7 @@ import { TILE_H, TILE_W } from '../config';
 import type { Size } from '../geometry';
 import type { State } from '../world';
 import { type ScreenWindow, inWindow } from './drawables';
-import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type TerrainGrid, type TerrainLook, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
+import { CHUNK, GROUND_KIND, REACH, TERRAIN_PX, type TerrainGrid, type TerrainLook, anyStream, anyTerrain, chunkPixels, chunkSize, differs, terrainGrid } from './terrainField';
 
 type Chunk = { sprite: Sprite; canvas: HTMLCanvasElement; texture: Texture; drawn: TerrainGrid };
 
@@ -33,7 +33,7 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
     return looks.length - 1;
   };
 
-  let from: Readonly<{ terrain: State['terrain']; size: Size; ground: string }> | null = null;
+  let from: Readonly<{ terrain: State['terrain']; tiles: State['tiles']; size: Size; ground: string }> | null = null;
   let grid: TerrainGrid | null = null;
   let ground: TerrainLook = { color: 0 };
 
@@ -76,12 +76,13 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
 
   // state is the turned state the scene draws; win the part of the world to draw (null: all of it)
   const render = (state: State, win: ScreenWindow | null): void => {
-    if (!from || from.terrain !== state.terrain || from.size !== state.size || from.ground !== state.ground) {
+    if (!from || from.terrain !== state.terrain || from.tiles !== state.tiles || from.size !== state.size || from.ground !== state.ground) {
       // a new map or ground, or a turn of a non-square one: every picture starts over
       if (from && (from.size !== state.size || from.ground !== state.ground)) [...chunks.keys()].forEach(drop);
-      from = { terrain: state.terrain, size: state.size, ground: state.ground };
+      from = { terrain: state.terrain, tiles: state.tiles, size: state.size, ground: state.ground };
       ground = lookOf(state.ground) ?? { color: 0 };
-      grid = terrainGrid(state.terrain, state.size.w, state.size.h, kindOf);
+      // streams are drawn in the ground picture too (they sink into it, see terrainField.ts)
+      grid = terrainGrid(state.terrain, state.size.w, state.size.h, kindOf, state.tiles.filter((t) => t.defId === 'stream'));
     }
     const g = grid!;
     for (let cy = 0; cy * CHUNK < g.h; cy++)
@@ -92,7 +93,7 @@ export const createTerrainLayer = (lookOf: (defId: string) => TerrainLook | null
         // the blend reaches a few tiles beyond the chunk, so that ring of neighbors counts too
         const [rx0, ry0, rx1, ry1] = [x0 - REACH, y0 - REACH, x0 + cw + REACH, y0 + ch + REACH];
         const known = chunks.get(key);
-        if (!ground.specks && !anyTerrain(g, rx0, ry0, rx1, ry1)) {
+        if (!ground.specks && !anyTerrain(g, rx0, ry0, rx1, ry1) && !anyStream(g, rx0 - 1, ry0 - 1, rx1 + 1, ry1 + 1)) {
           drop(key);
           continue;
         }

@@ -6,14 +6,16 @@ import { SHAPES } from './shapes';
 
 // `joins` says which sides a smart piece meets a neighbor of its own kind: [-y, +x, +y, -x]
 export type Joins = readonly [boolean, boolean, boolean, boolean];
-export type ObjectLook = Cell & Readonly<{ defId: string; rotation: Rotation; alpha: number; joins?: Joins; paved?: boolean }>;
+// sink: pixels to lower the whole object by (something floating on sunken water)
+export type ObjectLook = Cell & Readonly<{ defId: string; rotation: Rotation; alpha: number; joins?: Joins; paved?: boolean; sink?: number }>;
 
 export const drawObject = (g: Graphics, item: ObjectLook): void => {
   const def = getObjectDef(item.defId);
   if (def.smart === 'median') return drawMedian(g, item, item.joins ?? [false, false, false, false]);
   if (def.marks) return drawMarks(g, item);
+  const sink = item.sink ?? 0;
   partsOf(def, item.rotation).forEach((p) =>
-    SHAPES[p.shape](g, { x: item.x + p.dx, y: item.y + p.dy, w: p.w, h: p.h }, p.z, p.height, p.color, item.alpha),
+    SHAPES[p.shape](g, { x: item.x + p.dx, y: item.y + p.dy, w: p.w, h: p.h }, p.z - sink, p.height, p.color, item.alpha),
   );
 };
 

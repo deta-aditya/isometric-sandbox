@@ -8,19 +8,19 @@ import { toScreen } from '../geometry';
 export const shade = (c: number, f: number): number =>
   ((((c >> 16) & 255) * f) << 16) | ((((c >> 8) & 255) * f) << 8) | (((c & 255) * f) | 0);
 
-type P3 = readonly [number, number, number]; // grid x, grid y, elevation in pixels
+export type P3 = readonly [number, number, number]; // grid x, grid y, elevation in pixels
 
 // Grid point at an elevation -> [sx, sy]
-const pt = ([gx, gy, gz]: P3): [number, number] => {
+export const pt = ([gx, gy, gz]: P3): [number, number] => {
   const { sx, sy } = toScreen(gx, gy);
   return [sx, sy - gz];
 };
 
-const poly = (g: Graphics, points: readonly P3[], color: number, alpha: number): void => {
+export const poly = (g: Graphics, points: readonly P3[], color: number, alpha: number): void => {
   g.poly(points.flatMap(pt)).fill({ color, alpha });
 };
 
-const quad = ({ x, y, w, h }: Rect, z: number): P3[] => [
+export const quad = ({ x, y, w, h }: Rect, z: number): P3[] => [
   [x, y, z],
   [x + w, y, z],
   [x + w, y + h, z],
