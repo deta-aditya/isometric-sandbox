@@ -59,7 +59,7 @@ kbd {
 /* ---------- Bottom bar ---------- */
 /* Bar and tray share one fixed width so nothing jumps between categories or tabs */
 :root {
-  --hud-width: 1060px; /* one row fits the tool chip, tools, categories, Blueprints and the right group */
+  --hud-width: 1140px; /* one row fits the tool chip, tools, categories, Blueprints and the right group */
   --bar-height: 76px; /* kept in sync with the real bar height by the HUD */
   --edge: 12px;
 }
@@ -468,7 +468,7 @@ kbd {
 /* ---------- Narrow screens (phones) ----------
    The bar becomes two rows: the tool chip with history, floors and help on top, and every tool and
    category button below in a row that scrolls sideways when it does not fit. */
-@media (max-width: 1100px) {
+@media (max-width: 1163px) {
   :root {
     --edge: 8px;
   }
@@ -581,7 +581,7 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
+  width: 24px;
   height: 20px;
   padding: 0;
   border-color: #334155;
@@ -1189,4 +1189,29 @@ kbd {
   #game-chip[data-state='problem'] .game-dot {
     display: block;
   }
+}
+
+/* ---------- Terrain brush size (in the tool chip, under the item's name) ---------- */
+.brush-size {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.brush-step {
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border-color: #334155;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.brush-value {
+  min-width: 26px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
 }

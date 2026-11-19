@@ -10,6 +10,7 @@ import {
   getItem,
   getObjectDef,
   getOpeningDef,
+  isTerrain,
   getPaint,
   type Rotation,
   turn,
@@ -28,6 +29,7 @@ import {
   occupiedCells,
   itemsIn,
 } from './catalog';
+import { type BrushSize, DEFAULT_BRUSH, brushCells, stepBrush as stepBrushSize, strokeCells } from './brush';
 import {
   type Cell,
   type Edge,
@@ -54,6 +56,8 @@ import {
 export type ObjectPlacement = Rect & Readonly<{ defId: string; rotation: Rotation }>;
 export type ObjectEntity = ObjectPlacement & Readonly<{ id: number }>;
 export type Tile = Cell & Readonly<{ defId: string }>;
+// The ground under everything: at most one per cell, never `grass` (no entry is plain grass)
+export type TerrainCell = Readonly<{ x: number; y: number; defId: string }>;
 // A wall segment on one grid edge, optionally holding a door, window or arch
 // Paint on each side of a wall. `before` faces the cell at smaller x or y (north or west), `after`
 // the cell at the edge's own x, y (south or east). Null shows the material.
@@ -67,6 +71,7 @@ export type Drag =
   | Readonly<{ mode: 'wall'; start: Cell }> // start is a grid vertex
   | Readonly<{ mode: 'square'; start: Cell }> // start is a cell
   | Readonly<{ mode: 'paint' }>
+  | Readonly<{ mode: 'brush'; last: Point }> // painting terrain with the round brush; `last` is where the stroke has reached
   | Readonly<{ mode: 'run'; start: Cell }> // laying a straight run of road pieces, in the row it started
   | Readonly<{ mode: 'erase'; start: Cell; point: Point | null }> // bulldozing: a box from start to the hover
   | Readonly<{ mode: 'span'; start: Edge }> // dragging a wide opening along a wall
@@ -85,6 +90,7 @@ export type Pieces = Readonly<{
   objects: readonly ObjectEntity[];
   walls: readonly WallSegment[];
   tiles: readonly Tile[];
+  terrain: readonly TerrainCell[];
   culverts: readonly Edge[];
 }>;
 
@@ -172,6 +178,7 @@ export type State = Readonly<{
   size: Size; // the map's width and height in tiles (part of the world; in a view it is the view's frame)
   objects: readonly ObjectEntity[];
   tiles: readonly Tile[];
+  terrain: readonly TerrainCell[]; // the ground under floors, paths, water and roads
   culverts: readonly Edge[]; // culverts on canal banks
   walls: readonly WallSegment[];
   nextId: number;
@@ -191,6 +198,7 @@ export type State = Readonly<{
   showGrid: boolean; // also a view setting
   bulldozeFilter: BulldozeFilter; // which kinds of thing the bulldoze removes (a tool setting, not undone)
   selectFilter: BulldozeFilter; // which kinds of thing the select tool picks and boxes (its own setting)
+  brushSize: BrushSize; // how wide the terrain brush is (a tool setting: not undone, not saved)
   clipboard: Clipboard | null; // what Ctrl+C or Ctrl+X kept (session only, not undone, not saved)
   blueprints: readonly Blueprint[]; // the saved library (kept by the browser, not undone, not part of the world)
   blueprintTray: boolean; // the tray shows the blueprints instead of a catalog category
@@ -204,6 +212,7 @@ export type State = Readonly<{
 export type EraseTarget =
   | Readonly<{ kind: 'object'; target: ObjectEntity }>
   | Readonly<{ kind: 'tile'; target: Tile }>
+  | Readonly<{ kind: 'terrain'; target: TerrainCell }>
   | Readonly<{ kind: 'wall'; target: WallSegment }>
   | Readonly<{ kind: 'opening'; target: WallSegment }>
   | Readonly<{ kind: 'culvert'; target: Edge }>;
@@ -229,6 +238,7 @@ export type Action =
   | { type: 'toggleGrid' }
   | { type: 'toggleBulldozeFilter'; category: CategoryId }
   | { type: 'toggleSelectFilter'; category: CategoryId }
+  | { type: 'stepBrush'; step: 1 | -1 }
   | { type: 'toggleGuideTool' }
   | { type: 'clearGuides' }
   | { type: 'toggleBlueprints' }
@@ -255,6 +265,7 @@ export const initialState: State = {
   objects: [],
   culverts: [],
   tiles: [],
+  terrain: [],
   walls: [],
   nextId: 1,
   hover: null,
@@ -271,8 +282,9 @@ export const initialState: State = {
   selection: null,
   wallView: 'cutaway',
   showGrid: true,
-  bulldozeFilter: { scenery: true, furniture: true, flooring: true, building: true },
-  selectFilter: { scenery: true, furniture: true, flooring: true, building: true },
+  bulldozeFilter: { scenery: true, furniture: true, flooring: true, building: true, terrain: true },
+  selectFilter: { scenery: true, furniture: true, flooring: true, building: true, terrain: true },
+  brushSize: DEFAULT_BRUSH,
   clipboard: null,
   blueprints: [],
   blueprintTray: false,
@@ -289,19 +301,21 @@ export type GameWorld = Readonly<{
   size: Size;
   objects: readonly ObjectEntity[];
   tiles: readonly Tile[];
+  terrain: readonly TerrainCell[];
   walls: readonly WallSegment[];
   culverts: readonly Edge[];
   nextId: number;
   rotation: Rotation;
 }>;
 
-export const emptyWorld = (size: Size): GameWorld => ({ size, objects: [], tiles: [], walls: [], culverts: [], nextId: 1, rotation: 0 });
+export const emptyWorld = (size: Size): GameWorld => ({ size, objects: [], tiles: [], terrain: [], walls: [], culverts: [], nextId: 1, rotation: 0 });
 
 // Takes the world state (what history holds), not the turned view state
 export const gameWorldOf = (s: State): GameWorld => ({
   size: s.size,
   objects: s.objects,
   tiles: s.tiles,
+  terrain: s.terrain,
   walls: s.walls,
   culverts: s.culverts,
   nextId: s.nextId,
@@ -435,6 +449,7 @@ export const objectAt = (s: State, c: Cell) => {
   return PICK_ORDER.map((layer) => here.find((o) => layerOf(o.defId) === layer)).find((o) => o !== undefined);
 };
 export const tileAt = (s: State, c: Cell) => s.tiles.find((t) => t.x === c.x && t.y === c.y);
+export const terrainAt = (s: State, c: Cell) => s.terrain.find((t) => t.x === c.x && t.y === c.y);
 export const wallAt = (s: State, e: Edge) => s.walls.find((w) => sameEdge(w, e));
 
 // From the roof view, enclosed cells are under a roof and cannot be reached
@@ -741,7 +756,10 @@ export const eraseTarget = (s: State, cell: Cell, point: Point | null): EraseTar
   const object = objectAt(s, cell);
   if (object) return { kind: 'object', target: object };
   const tile = tileAt(s, cell);
-  return tile ? { kind: 'tile', target: tile } : null;
+  if (tile) return { kind: 'tile', target: tile };
+  // terrain is the lowest thing: a click reaches it only when nothing else is there
+  const ground = terrainAt(s, cell);
+  return ground ? { kind: 'terrain', target: ground } : null;
 };
 
 // What the select tool would pick: the same priority as removal, but floors and culverts are only
@@ -756,7 +774,16 @@ export const pickTarget = (s: State, cell: Cell, point: Point | null): EraseTarg
   if (hiddenUnderRoof(s, cell)) return null;
   const object = objectAt(s, cell);
   const hit: EraseTarget | null = object ? { kind: 'object', target: object } : null;
-  return hit && s.selectFilter[categoryOfTarget(hit)] ? hit : null;
+  if (hit && s.selectFilter[categoryOfTarget(hit)]) return hit;
+  return terrainPick(s, cell);
+};
+
+// Terrain is picked last, and only bare: a floor or a road on top hides it (and floors are never clicked).
+// Standing things switched off in the filter are looked past.
+const terrainPick = (s: State, cell: Cell): EraseTarget | null => {
+  const covered = tileAt(s, cell) !== undefined || s.objects.some((o) => layerOf(o.defId) !== null && onCell(o, cell));
+  const ground = s.selectFilter.terrain && !covered ? terrainAt(s, cell) : undefined;
+  return ground ? { kind: 'terrain', target: ground } : null;
 };
 
 // ===== Paint =====
@@ -880,9 +907,12 @@ const applyPaint = (s: State, plan: PaintPlan | null): State => {
 // either way, so it never leaks into the next room; fences do not. Works indoors and out.
 export type FloorFill = Readonly<{ cells: readonly Cell[]; mode: FillMode }>;
 
-export const floodTiles = (s: State, start: Cell, mode: FillMode): Cell[] => {
+export const floodTiles = (s: State, start: Cell, mode: FillMode): Cell[] =>
+  flood(s, start, mode, new Map(s.tiles.map((t) => [cellKey(t), t.defId])));
+
+// The same spread for any ground layer: `floorAt` says what each cell holds (no entry is bare ground)
+const flood = (s: State, start: Cell, mode: FillMode, floorAt: ReadonlyMap<string, string>): Cell[] => {
   if (!cellInBounds(s.size, start)) return [];
-  const floorAt = new Map(s.tiles.map((t) => [cellKey(t), t.defId]));
   const startFloor = floorAt.get(cellKey(start)) ?? null;
   const walls = new Set(s.walls.filter((w) => !isFence(w.styleId)).map(edgeKey));
   const blocked = (e: Edge) => walls.has(edgeKey(e));
@@ -922,6 +952,47 @@ export const floorFill = (s: State): FloorFill | null => {
 const applyFloorFill = (s: State, fill: FloorFill | null, defId: string): State =>
   (fill?.cells ?? []).reduce((acc, c) => paint(acc, c, defId), s);
 
+// ===== Terrain =====
+// Painted with the round brush (a stroke is one undo step, like a floor drag) and filled like floors:
+// Shift + click spreads over the same terrain (bare grass counts as one terrain), Shift + Ctrl over any.
+// Real walls stop a fill and fences do not. Floors on top are ignored: the fill works on the terrain
+// layer under them. `cells` is what the fill would paint, in view space, for the preview.
+export type TerrainFill = Readonly<{ cells: readonly Cell[]; mode: FillMode }>;
+
+// Sets the terrain of many cells at once (the eraser `grass` takes it away). Cells off the map are
+// skipped; the state itself comes back when nothing changes, so a stroke over painted ground is free.
+const paintTerrain = (s: State, cells: readonly Cell[], defId: string): State => {
+  const erase = defId === 'grass';
+  const there = new Map(s.terrain.map((t) => [cellKey(t), t.defId]));
+  const changed = new Map<string, Cell>();
+  cells.forEach((c) => {
+    if (!cellInBounds(s.size, c)) return;
+    const key = cellKey(c);
+    if ((there.get(key) ?? 'grass') !== defId) changed.set(key, c);
+  });
+  if (changed.size === 0) return s;
+  const kept = s.terrain.filter((t) => !changed.has(cellKey(t)));
+  const added = erase ? [] : [...changed.values()].map((c): TerrainCell => ({ x: c.x, y: c.y, defId }));
+  return { ...s, terrain: [...kept, ...added] };
+};
+
+export const floodTerrain = (s: State, start: Cell, mode: FillMode): Cell[] =>
+  flood(s, start, mode, new Map(s.terrain.map((t) => [cellKey(t), t.defId])));
+
+let lastTerrainFill: { terrain: State['terrain']; walls: State['walls']; key: string; cells: readonly Cell[] } | null = null;
+
+export const terrainFill = (s: State): TerrainFill | null => {
+  const mode = fillMode(s);
+  if (s.tool !== 'build' || !isTerrain(s.selectedId) || !mode || s.drag || !s.hover) return null;
+  const key = `${cellKey(s.hover)}|${mode}`;
+  if (!lastTerrainFill || lastTerrainFill.terrain !== s.terrain || lastTerrainFill.walls !== s.walls || lastTerrainFill.key !== key) {
+    lastTerrainFill = { terrain: s.terrain, walls: s.walls, key, cells: floodTerrain(s, s.hover, mode) };
+  }
+  return { cells: lastTerrainFill.cells, mode };
+};
+
+const applyTerrainFill = (s: State, fill: TerrainFill | null, defId: string): State => (fill ? paintTerrain(s, fill.cells, defId) : s);
+
 // ===== Bulldoze =====
 // One plan says everything a bulldoze action would remove: a single click (the same target the
 // highlight shows), a dragged box, or with Shift a whole room. The preview draws the plan and
@@ -939,6 +1010,7 @@ export const categoryOfTarget = (t: EraseTarget): CategoryId => {
     case 'object':
       return categoryOf(getItem(t.target.defId).group);
     case 'tile':
+    case 'terrain':
       return categoryOf(getItem(t.target.defId).group);
     case 'culvert':
       return categoryOf(getItem('culvert').group);
@@ -990,6 +1062,7 @@ const targetsWhere = (
 ): EraseTarget[] => [
   ...s.objects.filter((o) => overlaps(o) && !occupiedCells(o).some((c) => hiddenUnderRoof(s, c))).map((o): EraseTarget => ({ kind: 'object', target: o })),
   ...s.tiles.filter((t) => inCell(t) && !hiddenUnderRoof(s, t)).map((t): EraseTarget => ({ kind: 'tile', target: t })),
+  ...s.terrain.filter((t) => inCell(t) && !hiddenUnderRoof(s, t)).map((t): EraseTarget => ({ kind: 'terrain', target: t })),
   ...s.walls.filter(edgeIn).map((w): EraseTarget => ({ kind: 'wall', target: w })),
   ...s.culverts.filter(edgeIn).map((c): EraseTarget => ({ kind: 'culvert', target: c })),
 ];
@@ -1024,6 +1097,8 @@ const applyBulldoze = (s: State, plan: BulldozePlan | null): State =>
         return { ...acc, objects: acc.objects.filter((o) => o !== t.target) };
       case 'tile':
         return { ...acc, tiles: acc.tiles.filter((x) => x !== t.target) };
+      case 'terrain':
+        return { ...acc, terrain: acc.terrain.filter((x) => x !== t.target) };
       case 'culvert': // one culvert goes as its whole run, like a span of door
         return culvertAt(acc, t.target) ? removeCulvert(acc, t.target) : acc;
       case 'opening': { // removing an opening leaves the walls; a span goes as a whole
@@ -1106,9 +1181,7 @@ const placeOpenings = (s: State, edges: readonly Edge[], ids: readonly string[])
 };
 
 // ===== Selecting several things =====
-const NO_PIECES: Pieces = { objects: [], walls: [], tiles: [], culverts: [] };
-
-export const pieceCount = (p: Pieces): number => p.objects.length + p.walls.length + p.tiles.length + p.culverts.length;
+export const pieceCount = (p: Pieces): number => p.objects.length + p.walls.length + p.tiles.length + p.terrain.length + p.culverts.length;
 
 // What a mark stands for: a door marks its wall (walls carry their openings), and a wide opening marks
 // its whole run, so it never comes apart
@@ -1131,6 +1204,7 @@ export const piecesOf = (targets: readonly EraseTarget[]): Pieces => ({
   objects: targets.flatMap((t) => (t.kind === 'object' ? [t.target] : [])),
   walls: targets.flatMap((t) => (t.kind === 'wall' || t.kind === 'opening' ? [t.target] : [])),
   tiles: targets.flatMap((t) => (t.kind === 'tile' ? [t.target] : [])),
+  terrain: targets.flatMap((t) => (t.kind === 'terrain' ? [t.target] : [])),
   culverts: targets.flatMap((t) => (t.kind === 'culvert' ? [t.target] : [])),
 });
 
@@ -1138,6 +1212,7 @@ const targetsOf = (p: Pieces): EraseTarget[] => [
   ...p.objects.map((target): EraseTarget => ({ kind: 'object', target })),
   ...p.walls.map((target): EraseTarget => ({ kind: 'wall', target })),
   ...p.tiles.map((target): EraseTarget => ({ kind: 'tile', target })),
+  ...p.terrain.map((target): EraseTarget => ({ kind: 'terrain', target })),
   ...p.culverts.map((target): EraseTarget => ({ kind: 'culvert', target })),
 ];
 
@@ -1152,12 +1227,13 @@ export const boxTargets = (s: State): EraseTarget[] => {
 
 // Takes pieces out of the world (by identity: exactly these, not look-alikes)
 const without = (s: State, p: Pieces): State => {
-  const gone = new Set<object>([...p.objects, ...p.walls, ...p.tiles, ...p.culverts]);
+  const gone = new Set<object>([...p.objects, ...p.walls, ...p.tiles, ...p.terrain, ...p.culverts]);
   return {
     ...s,
     objects: s.objects.filter((o) => !gone.has(o)),
     walls: s.walls.filter((w) => !gone.has(w)),
     tiles: s.tiles.filter((t) => !gone.has(t)),
+    terrain: s.terrain.filter((t) => !gone.has(t)),
     culverts: s.culverts.filter((c) => !gone.has(c)),
   };
 };
@@ -1170,7 +1246,7 @@ export const groupGhost = (s: State): Pieces | null => {
   for (let i = 0; i < sel.turns; i++) p = turnAbout(sel.anchor, p);
   const dx = s.hover.x - sel.anchor.x, dy = s.hover.y - sel.anchor.y;
   const move = <T extends { x: number; y: number }>(t: T): T => ({ ...t, x: t.x + dx, y: t.y + dy });
-  return { objects: p.objects.map(move), walls: p.walls.map(move), tiles: p.tiles.map(move), culverts: p.culverts.map(move) };
+  return { objects: p.objects.map(move), walls: p.walls.map(move), tiles: p.tiles.map(move), terrain: p.terrain.map(move), culverts: p.culverts.map(move) };
 };
 
 // A held group's ghost and whether it fits. Drawing asks several times a frame, and the answer only
@@ -1178,7 +1254,7 @@ export const groupGhost = (s: State): Pieces | null => {
 export type HeldPlan = Readonly<{ ghost: Pieces; valid: boolean }>;
 let lastHeld: { key: readonly unknown[]; plan: HeldPlan | null } | null = null;
 export const heldPlan = (s: State): HeldPlan | null => {
-  const key = [s.selection, s.hover?.x, s.hover?.y, s.tool, s.objects, s.walls, s.tiles, s.culverts];
+  const key = [s.selection, s.hover?.x, s.hover?.y, s.tool, s.objects, s.walls, s.tiles, s.terrain, s.culverts];
   if (lastHeld && lastHeld.key.every((k, i) => k === key[i])) return lastHeld.plan;
   const ghost = groupGhost(s);
   const plan = ghost && { ghost, valid: placePieces(s, ghost) !== null };
@@ -1218,8 +1294,14 @@ export const placePieces = (s: State, p: Pieces): State | null => {
   }, s);
   if (!walled) return null;
   if (!p.tiles.every((t) => canPaint(walled, t))) return null;
+  if (!p.terrain.every((t) => cellInBounds(walled.size, t))) return null;
   const at = new Set(p.tiles.map(cellKey));
-  const floored: State = { ...walled, tiles: [...walled.tiles.filter((t) => !at.has(cellKey(t))), ...p.tiles] };
+  const ground = new Set(p.terrain.map(cellKey)); // terrain lands over terrain, as a floor over a floor
+  const floored: State = {
+    ...walled,
+    tiles: [...walled.tiles.filter((t) => !at.has(cellKey(t))), ...p.tiles],
+    terrain: [...walled.terrain.filter((t) => !ground.has(cellKey(t))), ...p.terrain],
+  };
   if (!p.culverts.every((c) => !culvertAt(floored, c) && bankOf(floored, c) !== null)) return null;
   const culverted: State = { ...floored, culverts: [...floored.culverts, ...p.culverts] };
   return p.objects.reduce<State | null>(
@@ -1246,7 +1328,7 @@ const putBack = (s: State, clear = true): State => {
     case 'group': {
       if (sel.copy) return cleared; // a paste took nothing out of the world
       const p = sel.pieces;
-      const back: State = { ...cleared, objects: [...s.objects, ...p.objects], walls: [...s.walls, ...p.walls], tiles: [...s.tiles, ...p.tiles], culverts: [...s.culverts, ...p.culverts] };
+      const back: State = { ...cleared, objects: [...s.objects, ...p.objects], walls: [...s.walls, ...p.walls], tiles: [...s.tiles, ...p.tiles], terrain: [...s.terrain, ...p.terrain], culverts: [...s.culverts, ...p.culverts] };
       return clear || !sel.marked ? back : { ...back, selection: marked(targetsOf(p)) };
     }
     case 'opening':
@@ -1273,6 +1355,7 @@ const boundsOf = (p: Pieces): Rect => {
   const rects: Rect[] = [
     ...p.objects,
     ...p.tiles.map((t) => ({ x: t.x, y: t.y, w: 1, h: 1 })),
+    ...p.terrain.map((t) => ({ x: t.x, y: t.y, w: 1, h: 1 })),
     ...[...p.walls, ...p.culverts].map((e) => (e.axis === 'x' ? { x: e.x, y: e.y - 1, w: 1, h: 2 } : { x: e.x - 1, y: e.y, w: 2, h: 1 })),
   ];
   const x = Math.min(...rects.map((r) => r.x)), y = Math.min(...rects.map((r) => r.y));
@@ -1306,7 +1389,9 @@ const selectPress = (s: State, cell: Cell, point: Point): State => {
   const marks = sel?.kind === 'marked' ? sel.targets : [];
   // With things marked, a plain click anywhere lifts them all, held by the clicked cell
   if (marks.length && !s.shiftHeld) return lift(at, marks, cell, true);
-  if (!hit) return { ...at, drag: { mode: 'box', start: cell, add: s.shiftHeld } };
+  // Terrain is the ground you start boxes on, so pressing on it starts a box too; a click that never
+  // left its cell marks the terrain there instead (see finishBox)
+  if (!hit || hit.kind === 'terrain') return { ...at, drag: { mode: 'box', start: cell, add: s.shiftHeld } };
   if (s.shiftHeld) {
     const these = marksFor(at, hit);
     const next = isMarked(at, hit) ? marks.filter((t) => !these.some((m) => sameTarget(t, m))) : unionMarks(marks, these);
@@ -1351,7 +1436,7 @@ const paste = (s: State, c: Pick<Clipboard, 'pieces' | 'anchor'> | null, name?: 
 const blueprintOf = (id: number, name: string, pieces: Pieces): Blueprint => {
   const box = boundsOf(pieces);
   const move = <T extends { x: number; y: number }>(t: T): T => ({ ...t, x: t.x - box.x, y: t.y - box.y });
-  const at = { objects: pieces.objects.map(move), walls: pieces.walls.map(move), tiles: pieces.tiles.map(move), culverts: pieces.culverts.map(move) };
+  const at = { objects: pieces.objects.map(move), walls: pieces.walls.map(move), tiles: pieces.tiles.map(move), terrain: pieces.terrain.map(move), culverts: pieces.culverts.map(move) };
   return { id, name, pieces: at, anchor: { x: Math.floor((box.w - 1) / 2), y: Math.floor((box.h - 1) / 2) } };
 };
 
@@ -1373,7 +1458,14 @@ const finishBox = (s: State, drag: Readonly<{ start: Cell; add: boolean }>): Sta
   const marks = s.selection?.kind === 'marked' ? s.selection.targets : [];
   const boxed = boxTargets(s);
   const done: State = { ...s, drag: null };
-  if (!boxArea(s)) return drag.add ? done : { ...done, selection: null };
+  if (!boxArea(s)) {
+    const ground = terrainPick(s, drag.start);
+    if (ground) {
+      const next = drag.add ? (isMarked(s, ground) ? marks.filter((t) => !sameTarget(t, ground)) : unionMarks(marks, [ground])) : [ground];
+      return { ...done, selection: marked(next) };
+    }
+    return drag.add ? done : { ...done, selection: null };
+  }
   return { ...done, selection: marked(drag.add ? unionMarks(marks, boxed) : boxed) };
 };
 
@@ -1383,6 +1475,7 @@ export const sourceItem = (hit: EraseTarget): string => {
     case 'object':
       return hit.target.defId;
     case 'tile':
+    case 'terrain':
       return hit.target.defId;
     case 'wall':
       return hit.target.styleId;
@@ -1410,6 +1503,7 @@ export const replaceWorld = (s: State, w: GameWorld): State => ({
   size: w.size,
   objects: w.objects,
   tiles: w.tiles,
+  terrain: w.terrain,
   walls: w.walls,
   culverts: w.culverts,
   nextId: w.nextId,
@@ -1470,6 +1564,11 @@ const updateInView = (state: State, action: Action): State => {
         if (sameCell(from, to)) return next;
         return cellsBetween(from, to).reduce((acc, c) => placeObjectAt(acc, c, true), next);
       }
+      // a terrain stroke stamps the brush all the way from where it got to, so a quick drag leaves no gaps
+      if (state.drag.mode === 'brush' && item.kind === 'terrain' && action.point) {
+        const stroke = strokeCells(state.drag.last, action.point, state.brushSize);
+        return { ...paintTerrain(next, stroke, item.id), drag: { mode: 'brush', last: action.point } };
+      }
       // a painting drag fills every cell from the last one to this, so a quick drag leaves no gaps
       if (state.drag.mode === 'paint' && !sameSpot) {
         const lay = (acc: State, c: Cell): State =>
@@ -1505,6 +1604,11 @@ const updateInView = (state: State, action: Action): State => {
         case 'tile':
           if (state.shiftHeld) return applyFloorFill(state, floorFill(state), item.id);
           return { ...paint(state, action.cell, item.id), drag: { mode: 'paint' } };
+        case 'terrain': {
+          const at: State = { ...state, hover: action.cell, point: action.point };
+          if (state.shiftHeld) return applyTerrainFill(at, terrainFill(at), item.id);
+          return { ...paintTerrain(at, brushCells(action.point, state.brushSize), item.id), drag: { mode: 'brush', last: action.point } };
+        }
         case 'culvert':
           return { ...state, point: action.point, drag: { mode: 'culvert', start: nearestEdge(action.point).edge } };
         case 'wall':
@@ -1671,6 +1775,11 @@ const updateInView = (state: State, action: Action): State => {
     }
     case 'loadBlueprints':
       return { ...state, blueprints: action.blueprints };
+
+    case 'stepBrush': {
+      const size = stepBrushSize(state.brushSize, action.step);
+      return size === state.brushSize ? state : { ...state, brushSize: size };
+    }
 
     case 'toggleSelectFilter':
       return { ...state, selectFilter: { ...state.selectFilter, [action.category]: !state.selectFilter[action.category] } };

@@ -86,6 +86,7 @@ export const turnAbout = (pivot: Cell, pieces: Pieces): Pieces => {
     objects: pieces.objects.map(q.object),
     walls: pieces.walls.map(q.wall),
     tiles: pieces.tiles.map(q.tile),
+    terrain: pieces.terrain.map(q.tile),
     culverts: pieces.culverts.map(q.edge),
   };
 };
@@ -144,6 +145,7 @@ const turnTarget = (target: EraseTarget, turn: Turn): EraseTarget => {
     case 'object':
       return { ...target, target: remembered(target.target, t.object, turn) };
     case 'tile':
+    case 'terrain': // terrain cells turn like tiles
       return { ...target, target: remembered(target.target, t.tile, turn) };
     case 'wall':
     case 'opening':
@@ -157,6 +159,7 @@ const turnPieces = (p: Pieces, turn: Turn): Pieces => ({
   objects: p.objects.map((o) => remembered(o, turn.t.object, turn)),
   walls: p.walls.map((w) => remembered(w, turn.t.wall, turn)),
   tiles: p.tiles.map((x) => remembered(x, turn.t.tile, turn)),
+  terrain: p.terrain.map((x) => remembered(x, turn.t.tile, turn)),
   culverts: p.culverts.map((c) => remembered(c, turn.t.edge, turn)),
 });
 
@@ -192,6 +195,8 @@ const dragForward = (d: Drag, turn: Turn): Drag => {
       return { ...d, start: t.cell(d.start) };
     case 'paint':
       return d;
+    case 'brush':
+      return { ...d, last: t.point(d.last) };
     case 'erase':
       return { ...d, start: t.cell(d.start), point: d.point && t.point(d.point) };
     case 'span':
@@ -228,6 +233,7 @@ const quarterState = (s: State, dir: Dir): State => {
     size: swapped(s.size),
     objects: listTurn(s.objects, t.object, turn),
     tiles: listTurn(s.tiles, t.tile, turn),
+    terrain: listTurn(s.terrain, t.tile, turn),
     culverts: listTurn(s.culverts, t.edge, turn),
     walls: listTurn(s.walls, t.wall, turn),
     hover: s.hover && t.cell(s.hover),

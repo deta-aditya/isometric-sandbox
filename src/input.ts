@@ -1,4 +1,4 @@
-import { CATEGORIES } from './catalog';
+import { FILTER_ORDER, isTerrain } from './catalog';
 import { GUIDES_ENABLED } from './config';
 // Input: Pixi/DOM events -> Actions. Camera (pan/zoom) is view state handled here directly.
 import type { Application, Container, FederatedPointerEvent } from 'pixi.js';
@@ -237,28 +237,35 @@ export const bindInput = (
       case 'Backspace':
         e.preventDefault();
         return dispatch({ type: 'deleteSelection' });
-      case 'PageUp':
+      // [ and ] change the floor, except while building terrain, where they size the brush
+      // (PageUp and PageDown always change the floor)
       case ']':
+      case '[': {
+        e.preventDefault();
+        const s = getState();
+        if (s.tool === 'build' && isTerrain(s.selectedId)) return dispatch({ type: 'stepBrush', step: e.key === ']' ? 1 : -1 });
+        return dispatch({ type: 'setLevel', level: level + (e.key === ']' ? 1 : -1) });
+      }
+      case 'PageUp':
         e.preventDefault();
         return dispatch({ type: 'setLevel', level: level + 1 });
       case 'PageDown':
-      case '[':
         e.preventDefault();
         return dispatch({ type: 'setLevel', level: level - 1 });
       case 'Escape':
         return dispatch({ type: 'cancel' });
     }
-    // Shift + 1 to 4 switch the select filter (with Shift the key reads !, @ ..., so go by the key's position)
+    // Shift + 1 to 5 switch the select filter (with Shift the key reads !, @ ..., so go by the key's position)
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (e.shiftKey && digit && getState().tool === 'select') {
-      const category = CATEGORIES[Number(digit[1]) - 1];
-      return category ? dispatch({ type: 'toggleSelectFilter', category: category.id }) : undefined;
+      const category = FILTER_ORDER[Number(digit[1]) - 1];
+      return category ? dispatch({ type: 'toggleSelectFilter', category }) : undefined;
     }
     const index = Number(e.key) - 1;
     if (!Number.isInteger(index) || index < 0) return;
-    // While bulldozing, 1 to 4 switch the filter for each category instead of picking items
-    const category = CATEGORIES[index];
-    if (getState().tool === 'bulldoze') return category ? dispatch({ type: 'toggleBulldozeFilter', category: category.id }) : undefined;
+    // While bulldozing, 1 to 5 switch the filter for each kind instead of picking items
+    const category = FILTER_ORDER[index];
+    if (getState().tool === 'bulldoze') return category ? dispatch({ type: 'toggleBulldozeFilter', category }) : undefined;
     dispatch({ type: 'selectIndex', index });
   });
 };

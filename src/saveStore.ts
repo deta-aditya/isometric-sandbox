@@ -4,25 +4,28 @@
 // Storage can be missing or refuse (private modes, a full quota): reading then finds nothing and writing
 // reports 'full'.
 import { MAX_GRID, MIN_GRID } from './config';
-import { footprintOf, getObjectDef } from './catalog';
+import { TILE_TO_TERRAIN, footprintOf, getObjectDef } from './catalog';
 import { type Edge, edgeKey, sizeOf } from './geometry';
 import { cleanName, AUTOSAVE_CHOICES, type AutosaveMinutes, DEFAULT_AUTOSAVE } from './session';
-import { culvert, int, isKind, keep, list, object, wall } from './pieceCodec';
-import { type GameWorld, type ObjectEntity, type Tile, type WallSegment, cellInBounds, edgeInBounds, rectInBounds } from './world';
+import { culvert, int, isKind, keep, list, object, oldTerrainTile, wall } from './pieceCodec';
+import { type GameWorld, type ObjectEntity, type TerrainCell, type Tile, type WallSegment, cellInBounds, edgeInBounds, rectInBounds } from './world';
 
 const INDEX_KEY = 'iso-sandbox:saves';
 const GAME_KEY = (id: number): string => `iso-sandbox:save:${id}`;
 const LAST_KEY = 'iso-sandbox:last';
 const SETTINGS_KEY = 'iso-sandbox:settings';
-const VERSION = 1;
+// Version 2 added terrain (stored like tiles). Version 1 games still load: their gravel and sand tiles
+// become terrain at the same cells. The saves index has its own, unchanged, version.
+const VERSION = 2;
+const INDEX_VERSION = 1;
 
 export type SaveEntry = Readonly<{ id: number; name: string; w: number; h: number; savedAt: number }>;
 export type Loaded = Readonly<{ world: GameWorld; dropped: number }>;
 
 // ===== A game as text =====
-// Tiles are run-length rows: flat quadruples [x, y, length, paletteIndex, ...] along x in row y, so a
+// Tiles and terrain are run-length rows: flat quadruples [x, y, length, paletteIndex, ...] along x in row y, so a
 // fully floored 256 by 256 map is a few thousand numbers instead of 65 thousand tiles.
-const encodeTiles = (tiles: readonly Tile[]): Readonly<{ palette: string[]; runs: number[] }> => {
+const encodeTiles = (tiles: readonly (Tile | TerrainCell)[]): Readonly<{ palette: string[]; runs: number[] }> => {
   const palette: string[] = [];
   const runs: number[] = [];
   const sorted = [...tiles].sort((a, b) => a.y - b.y || a.x - b.x);
@@ -52,6 +55,7 @@ export const encodeGame = (w: GameWorld): string =>
     walls: w.walls,
     culverts: w.culverts,
     tiles: encodeTiles(w.tiles),
+    terrain: encodeTiles(w.terrain),
   });
 
 const gridSide = (n: unknown): n is number => int(n) && n >= MIN_GRID && n <= MAX_GRID;
@@ -67,7 +71,8 @@ export const decodeGame = (text: string | null): Loaded | null => {
   } catch {
     return null;
   }
-  if (data.version !== VERSION || !gridSide(data.w) || !gridSide(data.h)) return null;
+  const version = data.version;
+  if ((version !== 1 && version !== VERSION) || !gridSide(data.w) || !gridSide(data.h)) return null;
   const size = sizeOf(data.w, data.h);
   let dropped = 0;
   const drop = (n = 1) => void (dropped += n);
@@ -108,33 +113,49 @@ export const decodeGame = (text: string | null): Loaded | null => {
     }
   }
 
-  const tileData = (typeof data.tiles === 'object' && data.tiles !== null ? data.tiles : {}) as Record<string, unknown>;
-  const palette = list(tileData.palette);
-  const runs = list(tileData.runs);
-  const cells = new Set<string>();
-  const tiles: Tile[] = [];
-  for (let i = 0; i + 3 < runs.length; i += 4) {
-    const [x, y, length, id] = [runs[i], runs[i + 1], runs[i + 2], runs[i + 3]];
-    const defId = int(id) ? palette[id] : undefined;
-    if (!int(x) || !int(y) || !int(length) || length < 1 || !isKind(defId, 'tile')) {
-      drop(int(length) && length > 0 ? Math.min(length, MAX_GRID) : 1);
-      continue;
-    }
-    // runs are clipped to the map; a run cannot honestly be longer than the widest map
-    for (let cx = x; cx < x + Math.min(length, MAX_GRID); cx++) {
-      const key = `${cx},${y}`;
-      if (!cellInBounds(size, { x: cx, y }) || cells.has(key)) drop();
-      else {
-        cells.add(key);
-        tiles.push({ x: cx, y, defId });
+  // Tiles and terrain are read the same way: runs of palette entries, one cell at a time. `accept` says
+  // which ids this layer can hold; the rest are dropped, and so are cells off the map and doubles.
+  const readLayer = (raw: unknown, accept: (defId: unknown) => string | null): { x: number; y: number; defId: string }[] => {
+    const data = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+    const palette = list(data.palette);
+    const runs = list(data.runs);
+    const cells = new Set<string>();
+    const out: { x: number; y: number; defId: string }[] = [];
+    for (let i = 0; i + 3 < runs.length; i += 4) {
+      const [x, y, length, id] = [runs[i], runs[i + 1], runs[i + 2], runs[i + 3]];
+      const defId = int(id) ? accept(palette[id]) : null;
+      if (!int(x) || !int(y) || !int(length) || length < 1 || defId === null) {
+        drop(int(length) && length > 0 ? Math.min(length, MAX_GRID) : 1);
+        continue;
+      }
+      // runs are clipped to the map; a run cannot honestly be longer than the widest map
+      for (let cx = x; cx < x + Math.min(length, MAX_GRID); cx++) {
+        const key = `${cx},${y}`;
+        if (!cellInBounds(size, { x: cx, y }) || cells.has(key)) drop();
+        else {
+          cells.add(key);
+          out.push({ x: cx, y, defId });
+        }
       }
     }
-  }
+    return out;
+  };
+
+  // A version 1 save may hold gravel and sand as tiles: they are read here and moved to terrain below
+  const tileId = (defId: unknown): string | null => (isKind(defId, 'tile') || (version === 1 && oldTerrainTile({ defId }) !== null) ? (defId as string) : null);
+  const held = readLayer(data.tiles, tileId);
+  const tiles: Tile[] = held.filter((t) => isKind(t.defId, 'tile'));
+  const moved: TerrainCell[] = held.flatMap((t) => (isKind(t.defId, 'tile') ? [] : [{ x: t.x, y: t.y, defId: TILE_TO_TERRAIN[t.defId] ?? '' }]));
+  const terrain: TerrainCell[] = [
+    ...moved,
+    // `grass` is the eraser, never stored
+    ...readLayer(version === 1 ? undefined : data.terrain, (defId) => (isKind(defId, 'terrain') && defId !== 'grass' ? defId : null)),
+  ];
 
   const highest = Math.max(0, ...objects.map((o) => o.id));
   const nextId = Math.max(int(data.nextId) ? data.nextId : 1, highest + 1);
   const rotation = [0, 1, 2, 3].includes(data.rotation as number) ? (data.rotation as 0 | 1 | 2 | 3) : 0;
-  return { world: { size, objects, tiles, walls, culverts, nextId, rotation }, dropped };
+  return { world: { size, objects, tiles, terrain, walls, culverts, nextId, rotation }, dropped };
 };
 
 // ===== The browser's storage =====
@@ -176,7 +197,7 @@ export const readIndex = (): readonly SaveEntry[] => {
   if (!text) return [];
   try {
     const data = JSON.parse(text) as { version?: unknown; saves?: unknown };
-    if (data.version !== VERSION) return [];
+    if (data.version !== INDEX_VERSION) return [];
     const seen = new Set<number>();
     return keep(list(data.saves).map(entry))
       .filter((e) => !seen.has(e.id) && seen.add(e.id))
@@ -186,7 +207,7 @@ export const readIndex = (): readonly SaveEntry[] => {
   }
 };
 
-const writeIndex = (saves: readonly SaveEntry[]): boolean => write(INDEX_KEY, JSON.stringify({ version: VERSION, saves }));
+const writeIndex = (saves: readonly SaveEntry[]): boolean => write(INDEX_KEY, JSON.stringify({ version: INDEX_VERSION, saves }));
 
 export const newGameId = (): number => Math.max(0, ...readIndex().map((e) => e.id)) + 1;
 

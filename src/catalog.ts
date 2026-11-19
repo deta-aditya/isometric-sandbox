@@ -9,7 +9,7 @@ import { type Box, boxDrawsBefore } from './depthSort';
 import type { Cell } from './geometry';
 
 // Two levels of grouping: categories (bottom bar) contain groups (tabs in the tray).
-export type CategoryId = 'scenery' | 'furniture' | 'flooring' | 'building';
+export type CategoryId = 'scenery' | 'furniture' | 'flooring' | 'terrain' | 'building';
 export type GroupId =
   | 'decor'
   | 'outdoor'
@@ -39,7 +39,9 @@ export type GroupId =
   | 'fences'
   | 'gates'
   | 'paints'
-  | 'floors';
+  | 'floors'
+  | 'grass'
+  | 'ground';
 
 export type Group = Readonly<{ id: GroupId; name: string }>;
 export type Category = Readonly<{ id: CategoryId; name: string; icon: string; groups: readonly Group[] }>;
@@ -89,6 +91,15 @@ export const CATEGORIES: readonly Category[] = [
     ],
   },
   {
+    id: 'terrain',
+    name: 'Terrain',
+    icon: 'soil-dirt',
+    groups: [
+      { id: 'grass', name: 'Grass' },
+      { id: 'ground', name: 'Ground' },
+    ],
+  },
+  {
     id: 'building',
     name: 'Building',
     icon: 'wooden-door',
@@ -103,6 +114,11 @@ export const CATEGORIES: readonly Category[] = [
     ],
   },
 ];
+
+// The order of the bulldoze and select filter toggles and their number keys. It is its own list so
+// that Terrain, which sits after Flooring in the category bar, takes the fifth key and the first four
+// keep the numbers they always had.
+export const FILTER_ORDER: readonly CategoryId[] = ['scenery', 'furniture', 'flooring', 'building', 'terrain'];
 
 export const groupsOf = (category: CategoryId): readonly Group[] =>
   CATEGORIES.find((c) => c.id === category)?.groups ?? [];
@@ -153,6 +169,9 @@ export type ObjectDef = Base &
   }>;
 // A tile with a bank color is water: it joins up with neighboring water and draws banks where it doesn't
 export type TileDef = Base & Readonly<{ kind: 'tile'; color: number; bank?: number }>;
+// Terrain is the ground itself, one kind per tile, under floors, paths, water and roads. No entry means
+// plain grass (the `grass` item is the eraser). The look (soft blended edges) is drawn from the color.
+export type TerrainDef = Base & Readonly<{ kind: 'terrain'; color: number; specks?: readonly number[] }>;
 // A culvert sits on a canal bank (a grid edge between water and land), like a door sits on a wall:
 // holes in the bank wall and the bank closing in at a V, so the water reads as running under the ground
 export type CulvertDef = Base & Readonly<{ kind: 'culvert' }>;
@@ -197,7 +216,7 @@ export type SpanPieces = Readonly<{ start: string; middle: string; end: string }
 export type OpeningDef = Base &
   OpeningLook &
   Readonly<{ kind: 'opening'; pieces?: SpanPieces; parent?: string; role?: SpanRole; gate?: true }>; // gates go on fences only
-export type CatalogItem = ObjectDef | TileDef | WallStyle | OpeningDef | CulvertDef | PaintDef;
+export type CatalogItem = ObjectDef | TileDef | TerrainDef | WallStyle | OpeningDef | CulvertDef | PaintDef;
 
 // Small helpers to keep the table below readable
 const box = (dx: number, dy: number, w: number, h: number, z: number, height: number, color: number): Part =>
@@ -1134,8 +1153,6 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'paths', id: 'concrete', name: 'Concrete', color: 0xc6c6c0 },
   { kind: 'tile', group: 'paths', id: 'red-brick', name: 'Red brick', color: 0x9a3f28 },
   { kind: 'tile', group: 'paths', id: 'cobblestone', name: 'Cobblestone', color: 0x77716a },
-  { kind: 'tile', group: 'paths', id: 'gravel', name: 'Gravel', color: 0xb09c70 },
-  { kind: 'tile', group: 'paths', id: 'sand', name: 'Sand', color: 0xf0d77a },
   { kind: 'tile', group: 'paths', id: 'running-track', name: 'Running track', color: 0xcf5f3c },
   { kind: 'tile', group: 'water', id: 'canal', name: 'Canal', color: 0x2f7fb8, bank: 0xa8a29e },
   { kind: 'tile', group: 'water', id: 'stream', name: 'Stream', color: 0x3b93a8, bank: 0xc8b07a },
@@ -1338,7 +1355,25 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'floors', id: 'gym-floor', name: 'Gym floor', color: 0x3e6db0 },
   { kind: 'tile', group: 'floors', id: 'blue-carpet', name: 'Blue carpet', color: 0x253f7a },
   { kind: 'tile', group: 'floors', id: 'grey-carpet', name: 'Grey carpet', color: 0x5f6b80 },
+
+  // Terrain. `grass` is the eraser: painting it takes the terrain away, so the tile is plain grass again.
+  { kind: 'terrain', group: 'grass', id: 'grass', name: 'Grass', color: 0x3a7d44 },
+  { kind: 'terrain', group: 'grass', id: 'lush-grass', name: 'Lush grass', color: 0x2c6834 },
+  { kind: 'terrain', group: 'grass', id: 'dry-grass', name: 'Dry grass', color: 0x96974e },
+  { kind: 'terrain', group: 'grass', id: 'turf', name: 'Turf', color: 0x529e48 },
+  { kind: 'terrain', group: 'grass', id: 'meadow', name: 'Meadow', color: 0x709240 },
+  { kind: 'terrain', group: 'grass', id: 'moss', name: 'Moss', color: 0x3e6c54 },
+  { kind: 'terrain', group: 'grass', id: 'flowery-grass', name: 'Flowery grass', color: 0x4a8a46, specks: [0xf4f1ea, 0xf2c94c, 0xe98fb5, 0xb69ae8] },
+  // 'dirt' is the Dirt path tile, so the terrain keeps its own id
+  { kind: 'terrain', group: 'ground', id: 'soil-dirt', name: 'Dirt', color: 0x7a5536 },
+  { kind: 'terrain', group: 'ground', id: 'mulch', name: 'Mulch', color: 0x5b3a24 },
+  { kind: 'terrain', group: 'ground', id: 'clay', name: 'Clay', color: 0xb8613a },
+  { kind: 'terrain', group: 'ground', id: 'terrain-gravel', name: 'Gravel', color: 0xb09c70 },
+  { kind: 'terrain', group: 'ground', id: 'terrain-sand', name: 'Sand', color: 0xf0d77a },
 ];
+
+// Gravel and sand used to be path tiles. Saves and blueprints that still hold them get terrain instead.
+export const TILE_TO_TERRAIN: Readonly<Record<string, string>> = { gravel: 'terrain-gravel', sand: 'terrain-sand' };
 
 export const CATALOG: readonly CatalogItem[] = ITEMS;
 
@@ -1358,6 +1393,8 @@ const getOfKind = <K extends CatalogItem['kind']>(kind: K, id: string): Extract<
 
 export const getObjectDef = (id: string) => getOfKind('object', id);
 export const getTileDef = (id: string) => getOfKind('tile', id);
+export const getTerrainDef = (id: string) => getOfKind('terrain', id);
+export const isTerrain = (id: string): boolean => BY_ID.get(id)?.kind === 'terrain';
 export const isWaterTile = (id: string): boolean => getTileDef(id).bank !== undefined;
 export const getWallStyle = (id: string) => getOfKind('wall', id);
 export const getPaint = (id: string) => getOfKind('paint', id);
@@ -1385,6 +1422,7 @@ export const swatchOf = (item: CatalogItem): number => {
     case 'object':
       return item.parts.at(-1)?.color ?? 0xffffff;
     case 'tile':
+    case 'terrain':
     case 'wall':
       return item.color;
     case 'opening':

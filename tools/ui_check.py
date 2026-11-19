@@ -12,10 +12,11 @@ WIDTHS = [int(w) for w in sys.argv[1:]] or [1280, 1101, 1024, 900, 700, 390, 360
 CHIP = """(names) => {
   const text = document.querySelector('.tool-text'); const bad = [];
   const title = text.querySelector('b'), detail = text.querySelector('span'), filters = text.querySelector('.bulldoze-filters');
-  const saved = [title.textContent, detail.textContent, filters ? filters.hidden : true];
+  const brush = text.querySelector('.brush-size');
+  const saved = [title.textContent, detail.textContent, filters ? filters.hidden : true, brush ? brush.hidden : true];
   const details = ['click to pick up', 'click an item', 'Moving · click to drop', 'Copied · Ctrl+V to paste', 'Pasting · click to place', 'Moving · click a wall',
     'Del to remove', 'drag to paint', 'click a wall', 'drag along a wall', 'Line · drag along grid lines',
-    'Room · drag a rectangle', 'Room · 32x32', '32 segments', 'drag along a bank', 'click or drag along walls', 'paints the hidden side', 'Fill all · 4096 tiles', 'click or drag a box', 'Box · 4096 things', '4096 selected', 'click to move', '4096 things', 'Moving · click to drop', 'Fill all · 999 sides', 'Shift: point at a wall', 'Shift: not in a room', '2x2', ...names.map(n => 'copy ' + n)];
+    'Room · drag a rectangle', 'Room · 32x32', '32 segments', 'drag along a bank', 'click or drag along walls', 'paints the hidden side', 'Fill all · 4096 tiles', 'click or drag a box', 'Box · 4096 things', '4096 selected', 'click to move', '4096 things', 'Moving · click to drop', 'Fill all · 999 sides', 'Shift: point at a wall', 'Shift: not in a room', 'Brush', 'Fill all · 4096 tiles', '2x2', ...names.map(n => 'copy ' + n)];
   // Bulldoze texts are measured with the filter row showing, as they appear in use
   const bulldoze = ['drag a box · Shift room', 'Shift: not in a room', 'Room · 999 to remove', '64x64 · 999 to remove'];
   const titles = ['Select', 'Picker', 'Bulldoze', ...names];
@@ -32,6 +33,17 @@ CHIP = """(names) => {
       if (![...filters.children].every(inside) || !inside(filters)) bad.push('bulldoze filters stick out with: ' + d);
     }
   } else bad.push('no bulldoze filter row found');
+  // A terrain item selected: its name, "Brush", and the size control (widest size) under it
+  if (brush) {
+    if (filters) filters.hidden = true;
+    brush.hidden = false; const value = brush.querySelector('output'); const was = value.textContent;
+    for (const size of ['1', '12']) {
+      value.textContent = size; title.textContent = names.find(n => n === 'Flowery grass') || 'Flowery grass'; detail.textContent = 'Brush';
+      if (!fits(detail) || !fits(text) || !fits(title)) bad.push('brush chip text does not fit');
+      if (![...brush.children].every(inside) || !inside(brush)) bad.push('brush size control sticks out with size ' + size);
+    }
+    value.textContent = was; brush.hidden = saved[3];
+  } else bad.push('no brush size control found');
   [title.textContent, detail.textContent] = saved; if (filters) filters.hidden = saved[2];
   return bad;
 }"""
@@ -125,6 +137,8 @@ def check_width(width):
                 check(f"{cat}/{t}")
                 pg.locator(".item-card").first.hover(); check(f"{cat}/{t} hover")
         pg.keyboard.press("v"); pg.click(".tool-button:has-text('Bulldoze')"); check("bulldoze")
+        pg.keyboard.press("v"); pg.click(".category:has-text('Terrain')"); pg.locator(".item").nth(6).click(); check("terrain selected, brush row")
+        pg.keyboard.press("Escape"); pg.keyboard.press("Escape")
         pg.click(".help-toggle"); check("help")
         problems.extend(f"chip {m}" for m in pg.evaluate(CHIP, sorted(names)))
         pg.close()  # one busy page per width at a time: the software renderer is slow enough already

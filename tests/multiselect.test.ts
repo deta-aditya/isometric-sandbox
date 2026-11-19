@@ -195,8 +195,8 @@ ok('marking and moving work the same from a turned camera');
 // ===== Filters =====
 // the select tool has its own filter, separate from the bulldoze one, and it is not an undo step
 h = run(world, { type: 'toggleSelectFilter', category: 'building' }, { type: 'toggleSelectFilter', category: 'flooring' });
-assert.deepEqual(h.state.selectFilter, { scenery: true, furniture: true, flooring: false, building: false });
-assert.deepEqual(h.state.bulldozeFilter, { scenery: true, furniture: true, flooring: true, building: true });
+assert.deepEqual(h.state.selectFilter, { scenery: true, furniture: true, flooring: false, building: false, terrain: true });
+assert.deepEqual(h.state.bulldozeFilter, { scenery: true, furniture: true, flooring: true, building: true, terrain: true });
 assert.equal(h.past.length, world.past.length);
 // a box over the room now marks only the crate and the chair
 const onlyFurniture = run(h, ...drag([13.5, 12.5], [9.5, 9.5]));

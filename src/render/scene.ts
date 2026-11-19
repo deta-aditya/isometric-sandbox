@@ -1,8 +1,9 @@
 // Scene view: State -> Pixi drawing. Owns the Graphics layers, nothing else.
 import { Container, Graphics } from 'pixi.js';
-import { type Rotation, footprintOf, getItem, getTileDef, isFlat, occupiedCells } from '../catalog';
+import { type Rotation, footprintOf, getItem, getTileDef, isFlat, isTerrain, getTerrainDef, occupiedCells } from '../catalog';
+import { brushCells, brushCircle } from '../brush';
 import { ROOF_T, WALL_H } from '../config';
-import type { Size } from '../geometry';
+import { type Size, toScreen } from '../geometry';
 import { type Rect, nearestVertex } from '../geometry';
 import {
   type State,
@@ -30,11 +31,14 @@ import {
   heldPlan,
   type Pieces,
   piecesBounds,
+  terrainFill,
+  cellInBounds,
 } from '../world';
+import { createTerrainLayer } from './terrainLayer';
 import { drawObject } from './draw';
 import { createGuides } from './guides';
 import { type Drawable, HOVER_COLOR, SELECTED_COLOR, type ScreenWindow, buildDrawables, culvertEnds, gridAlpha, inWindow, waterLookup, waterSides } from './drawables';
-import { drawBox, drawCulvertBank, drawEdgeStrip, drawFootprint, drawGridLines, drawGround, drawTile, drawVertex, drawWall, drawWash, drawWaterTile, shade } from './shapes';
+import { GRASS, drawBox, drawCulvertBank, drawEdgeStrip, drawFootprint, drawGridLines, drawGround, drawTile, drawVertex, drawWall, drawWash, drawWaterTile, shade } from './shapes';
 
 const VALID = 0x4ade80;
 const INVALID = 0xef4444;
@@ -85,6 +89,8 @@ export const drawPiecesPreview = (g: Graphics, base: State, p: Pieces): void => 
   const state: State = { ...base, objects: p.objects, walls: p.walls, tiles: p.tiles, culverts: p.culverts, selection: null, drag: null, hover: null, point: null, tool: 'select', level: 0 };
   const box = piecesBounds(p);
   for (let x = box.x; x < box.x + box.w; x++) for (let y = box.y; y < box.y + box.h; y++) drawTile(g, x, y, PREVIEW_GRASS, shade(PREVIEW_GRASS, 0.85));
+  // terrain on a card is flat tiles in its color (the soft blend needs the full renderer)
+  p.terrain.forEach((t) => drawTile(g, t.x, t.y, getTerrainDef(t.defId).color, shade(getTerrainDef(t.defId).color, 0.85)));
   drawFloorsInto(g, state, 1);
   const { sorted, flats } = buildDrawables(state);
   flats.forEach((d) => drawObject(g, d)); // roads and bays first, on the ground
@@ -100,7 +106,9 @@ export const createScene = (world: Container) => {
   const solids = new Graphics();
   // guides lie on the ground (walls and furniture stand in front of them); rulers sit outside the map, on top
   const guides = new Container();
-  world.addChild(ground, gridLines, floors, flats, guides, overlay, solids);
+  // terrain lies on the grass, under the grid lines and floors
+  const terrain = createTerrainLayer((id) => (isTerrain(id) ? getTerrainDef(id) : null), GRASS);
+  world.addChild(ground, terrain.container, gridLines, floors, flats, guides, overlay, solids);
   const guideLines = createGuides(guides);
 
   // Ground and grid lines are one fill and long lines, redrawn only when the frame's size changes
@@ -146,6 +154,7 @@ export const createScene = (world: Container) => {
         case 'object':
           return drawObjectFootprint(t.target, INVALID, 0.45);
         case 'tile':
+        case 'terrain':
           return drawFootprint(overlay, { ...t.target, w: 1, h: 1 }, INVALID, 0.45);
         case 'culvert':
           return culvertRun(state, t.target).forEach((e) => drawEdgeStrip(overlay, e, INVALID));
@@ -189,6 +198,7 @@ export const createScene = (world: Container) => {
     if (hit?.kind === 'object') drawObjectFootprint(hit.target, HOVER_COLOR, 0.3);
     if (hit?.kind === 'wall') drawEdgeStrip(overlay, hit.target, HOVER_COLOR);
     if (hit?.kind === 'opening') openingRun(state, hit.target).forEach((w) => drawEdgeStrip(overlay, w, HOVER_COLOR));
+    if (hit?.kind === 'terrain') drawFootprint(overlay, { ...hit.target, w: 1, h: 1 }, HOVER_COLOR, 0.2);
   };
 
   // Marked things (or what a box would mark) outlined in the selection color
@@ -198,6 +208,7 @@ export const createScene = (world: Container) => {
         case 'object':
           return drawObjectFootprint(t.target, SELECTED_COLOR, 0.35);
         case 'tile':
+        case 'terrain':
           return drawFootprint(overlay, { ...t.target, w: 1, h: 1 }, SELECTED_COLOR, 0.35);
         case 'culvert':
         case 'wall':
@@ -213,6 +224,7 @@ export const createScene = (world: Container) => {
       case 'object':
         return drawObjectFootprint(hit.target, HOVER_COLOR, 0.3);
       case 'tile':
+      case 'terrain':
         return drawFootprint(overlay, { ...hit.target, w: 1, h: 1 }, HOVER_COLOR, 0.3);
       case 'wall':
         return drawEdgeStrip(overlay, hit.target, HOVER_COLOR);
@@ -252,6 +264,25 @@ export const createScene = (world: Container) => {
           ? drawFootprint(overlay, cell, item.color, 0.7)
           : drawFootprint(overlay, cell, INVALID);
       }
+      case 'terrain': {
+        // Shift: every tile the fill reaches, in the terrain's color
+        const fill = terrainFill(state);
+        if (fill) return fill.cells.forEach((c) => drawFootprint(overlay, { ...c, w: 1, h: 1 }, item.color, 0.6));
+        if (!state.point) return;
+        // the brush: a light wash on the tiles it paints, and its circle on the ground
+        brushCells(state.point, state.brushSize)
+          .filter((c) => cellInBounds(state.size, c))
+          .forEach((c) => drawWash(overlay, { ...c, w: 1, h: 1 }, item.color, 0.35));
+        const { center, radius } = brushCircle(state.point, state.brushSize);
+        const ring = Array.from({ length: 49 }, (_, i) => {
+          const a = (i / 48) * Math.PI * 2;
+          const s = toScreen(center.x + radius * Math.cos(a), center.y + radius * Math.sin(a));
+          return [s.sx, s.sy];
+        }).flat();
+        overlay.poly(ring, false).stroke({ width: 3, color: 0x000000, alpha: 0.25 });
+        overlay.poly(ring, false).stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
+        return;
+      }
       case 'culvert': {
         const plan = culvertPlan(state);
         return plan?.edges.forEach((e) => drawEdgeStrip(overlay, e, plan.valid ? VALID : INVALID));
@@ -281,6 +312,7 @@ export const createScene = (world: Container) => {
   // win: the part of the world to draw (null draws all of it)
   const render = (state: State, win: ScreenWindow | null = null): void => {
     drawGroundFor(state.size);
+    terrain.render(state, win);
     const { sorted, ghostsOnTop, ghostValid, flats: flatPieces } = buildDrawables(state, win);
     gridLines.alpha = gridAlpha(state);
     gridLines.visible = gridLines.alpha > 0;

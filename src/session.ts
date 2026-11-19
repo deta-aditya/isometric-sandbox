@@ -33,7 +33,7 @@ export const freeGameName = (names: readonly string[]): string => {
   return `Game ${n}`;
 };
 
-const EMPTY: World = { objects: [], tiles: [], walls: [], culverts: [], nextId: 1 };
+const EMPTY: World = { objects: [], tiles: [], terrain: [], walls: [], culverts: [], nextId: 1 };
 
 // Dirty means there is something a close would lose. A game never written is clean while empty. Lifting
 // a piece and putting it back is no change (sameWorld), and the build facing alone is not part of it.

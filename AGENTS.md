@@ -27,6 +27,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 | `src/history.ts` | core | Undo/redo around `update` (`step`, `initialHistory`) |
 | `src/view.ts` | core | Quarter turns of state, points, cells, edges, pieces between world and view space |
 | `src/depthSort.ts` | core | Draw order for multi-tile objects (bucketed by screen column, so it scales to a full 256x256 map) |
+| `src/brush.ts` | core | The round terrain brush: `brushCells`, `strokeCells`, sizes 1 to 12 (center snaps to a tile center or grid corner) |
 | `src/camera.ts` | core | Pan and zoom limits as plain numbers: `clampCamera`, `minZoom`, `startCamera` |
 | `src/session.ts` | core | The game being played, apart from undo: `Session`, `isDirty`, free names, relative times, the chip's state text |
 | `src/pieceCodec.ts` | shell edge | Piece-by-piece validators shared by blueprint and game storage |
@@ -39,6 +40,8 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 | `src/render/draw.ts`, `shapes.ts` | shell | Drawing primitives: boxes, walls, poles, arches, marks, medians |
 | `src/render/hud.ts` | shell | DOM HUD: category bar, tray, tool chip, filters, blueprint tray, help |
 | `src/render/gameMenu.ts` | shell | Game chip, Game panel, New game and save-first dialogs; owns Esc and Ctrl+S while anything is open |
+| `src/render/terrainField.ts` | shell (pure) | Terrain look as numbers: per-point weights from a box blur of each terrain's tiles, cubed and mixed; chunk pixels |
+| `src/render/terrainLayer.ts` | shell | Terrain chunk pictures (32 by 32 tiles) as sprites laid on the ground with the isometric slant; redraws only changed, visible chunks |
 | `src/render/icons.ts` | shell | Tray icons rendered from the game's own drawing |
 
 ## Things that are easy to get wrong
@@ -48,6 +51,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 - **Drags** (`state.drag`) have modes; painting drags fill gaps with `cellsBetween`. A drag is one undo step.
 - **Rotation** (R) belongs to the world and persists across item picks.
 - **Map size** is `State.size` (a `Size` from `sizeOf(w, h)`, one object per size, so compare sizes by identity). In a view the state's size is that view's frame: on a non-square map width and height swap on odd views. Bounds helpers take the size (`cellInBounds(s.size, c)`), and so do `interiorCells` and `canopyCells`. `pointToView`/`pointFromView` take the world size; `guideFromView` takes the view's frame.
+- **Terrain** is its own layer (`State.terrain`, one per cell, none means grass), under floors and above the grass fill. Its look is not per-tile shapes: `terrainField.ts` blends terrains by weight, so there is no stacking order and no halo. Tune the blend with `BLUR` (reach) and the cube on the weights (sharpness). Filters are in `FILTER_ORDER` (catalog.ts), not `CATEGORIES` order, so Terrain is key 5 while the bar shows it after Flooring.
 - **Drawing only what is on screen.** `main.ts` keeps a drawn window (the screen plus half a screen around it) and `scene.render(seen, window)` builds, sorts and draws only what can show in it (`inWindow` in `drawables.ts`, which allows tall things below the window to reach into it). Anything new that is drawn per piece must go through that filter, or a big map gets slow again.
 - **Saves** write the committed world (`history.committed` plus size and facing), never the state mid-drag. A change to what a save holds bumps the save version in `saveStore.ts` and adds an upgrade step so older saves still load.
 

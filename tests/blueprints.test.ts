@@ -119,3 +119,60 @@ assert.equal(read[0]!.pieces.objects.length, lib[0]!.pieces.objects.length - 1);
 assert.equal(read[0]!.pieces.walls.length, lib[0]!.pieces.walls.length);
 assert.equal(read[0]!.pieces.walls.filter((w) => w.opening).length, 0);
 ok('the store reads back what it wrote, and drops what it cannot trust instead of failing');
+
+// ===== Terrain =====
+{
+  // a 2x2 of moss with a lone crate on it, marked with a box
+  const painted = run(initialHistory, { type: 'select', id: 'moss' }, { type: 'stepBrush', step: -1 }, ...click(20, 20), { type: 'select', id: 'crate' }, ...click(19.5, 19.5), { type: 'useSelect' });
+  assert.equal(painted.state.terrain.length, 4);
+  const marked2 = run(painted, ...drag([17.5, 17.5], [22.5, 22.5]));
+  const saved2 = run(marked2, { type: 'saveBlueprint' });
+  const tbp = saved2.state.blueprints[0]!;
+  assert.equal(tbp.pieces.terrain.length, 4);
+  assert.equal(Math.min(...tbp.pieces.terrain.map((t) => t.x)), 0); // at the origin with the rest
+  assert.equal(saved2.past.length, painted.past.length);
+  const back = decodeBlueprints(encodeBlueprints(saved2.state.blueprints));
+  assert.deepEqual(back, saved2.state.blueprints);
+  // placing it elsewhere puts the terrain there, in one step, with the object
+  let placed = run(saved2, { type: 'cancel' }, { type: 'placeBlueprint', id: tbp.id }, ...click(40.5, 40.5));
+  assert.equal(placed.state.terrain.length, 8);
+  assert.equal(placed.state.objects.length, 2);
+  assert.ok(placed.state.terrain.some((t) => t.x >= 40 && t.defId === 'moss'));
+  assert.equal(placed.past.length, painted.past.length + 1);
+  // from a turned camera it lands on the same world cells
+  const quarter = (x: number, y: number) => { const p = pointToView({ x, y }, 1, SQ); return pt(p.x, p.y); };
+  const turned = run(saved2, { type: 'cancel' }, { type: 'rotateView', dir: 1 }, { type: 'placeBlueprint', id: tbp.id }, { type: 'hover', ...quarter(40.5, 40.5) }, { type: 'press', ...quarter(40.5, 40.5) }, { type: 'release' });
+  const cells = (hh: History) => hh.state.terrain.map((t) => `${t.x},${t.y}`).sort().join(' ');
+  assert.equal(cells(turned), cells(placed));
+  ok('a blueprint stores terrain with the rest, reads back whole, and places the same from any view');
+
+  // terrain alone is enough for a blueprint, and what the catalog does not know is dropped
+  const bare = JSON.parse(encodeBlueprints(saved2.state.blueprints));
+  bare.blueprints[0].pieces = { terrain: [{ x: 0, y: 0, defId: 'moss' }, { x: 1, y: 0, defId: 'grass' }, { x: 2, y: 0, defId: 'no-such-ground' }, { x: 3, y: 0, defId: 'wood-floor' }, { x: 4, y: 0, defId: 'turf' }] };
+  const kept = decodeBlueprints(JSON.stringify(bare));
+  assert.deepEqual(kept[0]!.pieces.terrain.map((t) => t.defId), ['moss', 'turf']);
+  bare.blueprints[0].pieces = { terrain: [{ x: 0, y: 0, defId: 'grass' }] };
+  assert.deepEqual(decodeBlueprints(JSON.stringify(bare)), []); // nothing left, so no blueprint
+  ok('stored terrain is validated: unknown ids and grass are dropped');
+
+  // a version 1 library had gravel and sand as tiles: they come back as terrain at the same cells
+  const old = {
+    version: 1,
+    blueprints: [{
+      id: 3, name: 'Old yard', anchor: { x: 1, y: 0 },
+      pieces: { objects: [], walls: [], culverts: [], tiles: [{ x: 0, y: 0, defId: 'gravel' }, { x: 1, y: 0, defId: 'sand' }, { x: 2, y: 0, defId: 'stone' }, { x: 3, y: 0, defId: 'gone' }] },
+    }],
+  };
+  const upgraded = decodeBlueprints(JSON.stringify(old));
+  assert.equal(upgraded.length, 1);
+  assert.deepEqual(upgraded[0]!.pieces.tiles, [{ x: 2, y: 0, defId: 'stone' }]);
+  assert.deepEqual(upgraded[0]!.pieces.terrain, [{ x: 0, y: 0, defId: 'terrain-gravel' }, { x: 1, y: 0, defId: 'terrain-sand' }]);
+  // a library of only gravel and sand is not empty any more
+  old.blueprints[0]!.pieces.tiles = [{ x: 0, y: 0, defId: 'sand' }];
+  assert.equal(decodeBlueprints(JSON.stringify(old))[0]?.pieces.terrain[0]?.defId, 'terrain-sand');
+  // written again it is version 2, and in version 2 an old gravel tile is just an unknown tile
+  assert.equal(JSON.parse(encodeBlueprints(upgraded)).version, 2);
+  assert.deepEqual(decodeBlueprints(encodeBlueprints(upgraded)), upgraded);
+  assert.deepEqual(decodeBlueprints(JSON.stringify({ ...old, version: 2 })), []);
+  ok('version 1 blueprints turn gravel and sand tiles into terrain; the library is written as version 2');
+}

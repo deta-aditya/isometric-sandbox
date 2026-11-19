@@ -4,6 +4,7 @@ import { guideFromView, pointFromView, sizeInView } from '../view';
 import { isCutLow } from './drawables';
 import {
   CATEGORIES,
+  FILTER_ORDER,
   type CatalogItem,
   type CategoryId,
   type GroupId,
@@ -15,7 +16,7 @@ import {
 } from '../catalog';
 import { GUIDES_ENABLED, LEVELS, LEVEL_SHORT_NAMES } from '../config';
 import type { HistoryAction } from '../history';
-import { type Blueprint, type Guide, type State, type WallMode, type WallView, boxTargets, canSaveBlueprint, guideDragTarget, guideUnder, bulldozePlan, justCopied, pieceCount, culvertPlan, eraseTarget, floorFill, openingPlan, paintPlan, sourceItem, squareDraft, wallAt, wallDraft } from '../world';
+import { type Blueprint, type Guide, type State, type WallMode, type WallView, boxTargets, canSaveBlueprint, guideDragTarget, guideUnder, bulldozePlan, justCopied, pieceCount, culvertPlan, eraseTarget, floorFill, openingPlan, paintPlan, sourceItem, squareDraft, terrainFill, wallAt, wallDraft } from '../world';
 import { BLUEPRINT_ICON, BULLDOZE_ICON, GUIDE_ICON, type Icons, PICKER_ICON, SAVE_BLUEPRINT_ICON, SELECT_ICON, squareIcon } from './icons';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, html?: string) => {
@@ -38,9 +39,11 @@ const icon = (icons: Icons, id: string): string => `<img src="${icons.get(id) ??
 
 const hint = (item: CatalogItem, state: State): string => {
   // Shift with a floor: a fill (Ctrl: over every floor)
-  const fill = floorFill(state);
+  const fill = floorFill(state) ?? terrainFill(state);
   if (fill) return `${fill.mode === 'all' ? 'Fill all' : 'Fill'} · ${fill.cells.length} tiles`;
   switch (item.kind) {
+    case 'terrain':
+      return 'Brush';
     case 'paint': {
       // the far side of a back wall faces away from the camera, so say so rather than show nothing
       const plan = paintPlan(state);
@@ -235,10 +238,11 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
   const toolText = el('div', 'tool-text');
   const toolTitle = el('b');
   const toolDetail = el('span');
-  // Filters: one toggle per category, shown while bulldozing (keys 1 to 4) or selecting (Shift + 1 to 4).
+  // Filters: one toggle per kind of thing, shown while bulldozing (keys 1 to 5) or selecting (Shift + 1 to 5).
   // Each tool keeps its own setting; the same buttons show whichever tool is in use.
   const filters = el('div', 'bulldoze-filters');
-  const filterButtons = CATEGORIES.map((c, i) => {
+  const filterButtons = FILTER_ORDER.map((id, i) => {
+    const c = CATEGORIES.find((x) => x.id === id)!;
     const b = button('filter-toggle', icon(icons, c.icon), () =>
       dispatch(currentTool === 'select' ? { type: 'toggleSelectFilter', category: c.id } : { type: 'toggleBulldozeFilter', category: c.id }));
     return { id: c.id, name: c.name, key: i + 1, el: b };
@@ -248,7 +252,18 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
   // The guide tool's one action besides pointing: take every guide away
   const clearGuides = button('chip-action', 'Clear all', () => dispatch({ type: 'clearGuides' }));
   clearGuides.title = 'Remove every guide line';
-  toolText.append(toolTitle, toolDetail, filters, clearGuides);
+  // With a terrain item selected: the brush size, a button each way around the number. [ and ] do the same.
+  const brush = el('div', 'brush-size');
+  const smaller = button('brush-step', '\u2212', () => dispatch({ type: 'stepBrush', step: -1 }));
+  const larger = button('brush-step', '+', () => dispatch({ type: 'stepBrush', step: 1 }));
+  const brushValue = el('output', 'brush-value');
+  smaller.title = 'Smaller brush ([)';
+  larger.title = 'Larger brush (])';
+  smaller.setAttribute('aria-label', 'Smaller brush');
+  larger.setAttribute('aria-label', 'Larger brush');
+  brushValue.setAttribute('aria-label', 'Brush size');
+  brush.append(smaller, brushValue, larger);
+  toolText.append(toolTitle, toolDetail, brush, filters, clearGuides);
   tool.append(toolIcon, toolText);
 
   // ----- Center: one icon per category -----
@@ -559,6 +574,9 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
     toolTitle.textContent = chip.title;
     toolDetail.textContent = chip.detail;
     currentTool = state.tool;
+    const painting = state.tool === 'build' && getItem(state.selectedId).kind === 'terrain';
+    brush.toggleAttribute('hidden', !painting);
+    brushValue.textContent = String(state.brushSize);
     const selecting = state.tool === 'select';
     filters.toggleAttribute('hidden', !selecting && state.tool !== 'bulldoze');
     filters.classList.toggle('for-select', selecting);

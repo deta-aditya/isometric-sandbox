@@ -3,7 +3,7 @@
 import { Graphics, type Renderer } from 'pixi.js';
 import { CATALOG, type CatalogItem, type OpeningDef, type OpeningLook, getOpeningDef, getTileDef, getWallStyle, isPiece } from '../catalog';
 import { CUT_WALL_H, WALL_H } from '../config';
-import { cellsOf } from '../geometry';
+import { cellsOf, toScreen } from '../geometry';
 import { drawObject } from './draw';
 import { drawBox, drawCulvertBank, drawTile, drawWall, drawWaterTile, shade } from './shapes';
 import { waterSides } from './drawables';
@@ -56,6 +56,26 @@ const ICON_WALL = 0xe7e5e4;
 
 const patch = (g: Graphics, w: number, h: number, color: number): void =>
   cellsOf({ x: 0, y: 0, w, h }).forEach((c) => drawTile(g, c.x, c.y, color, shade(color, 0.85)));
+
+// Terrain: a soft round patch of the item's color on a grass tile (rings fading out to the grass),
+// with a few specks on it for flowery grass. The game's own look is drawn elsewhere; this is the tray's.
+const ring = (cx: number, cy: number, r: number): number[] =>
+  Array.from({ length: 24 }, (_, i) => {
+    const a = (i / 24) * Math.PI * 2;
+    const p = toScreen(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    return [p.sx, p.sy];
+  }).flat();
+const SPECK_AT: readonly (readonly [number, number])[] = [[0.7, 0.9], [1.25, 0.75], [0.95, 1.3], [1.4, 1.2], [0.6, 1.25], [1.1, 1.0]];
+const terrainPatch = (g: Graphics, color: number, specks: readonly number[] = []): void => {
+  patch(g, 2, 2, GRASS);
+  [[0.95, 0.3], [0.8, 0.5], [0.65, 0.8], [0.5, 1]].forEach(([r, alpha]) => g.poly(ring(1, 1, r ?? 0)).fill({ color, alpha: alpha ?? 1 }));
+  SPECK_AT.forEach(([x, y], i) => {
+    const c = specks[i % Math.max(1, specks.length)];
+    if (c === undefined) return;
+    const p = toScreen(x, y);
+    g.ellipse(p.sx, p.sy, 3, 1.8).fill(c);
+  });
+};
 
 // A 2x2 pool of water, banked on every outer side, for water tile icons
 const waterPatch = (g: Graphics, color: number, bank: number): void => {
@@ -156,6 +176,8 @@ const drawPreview = (g: Graphics, item: CatalogItem): void => {
       return culvertPatch(g);
     case 'paint':
       return paintPreview(g, item.color);
+    case 'terrain':
+      return terrainPatch(g, item.color, item.specks);
     case 'tile':
       return item.bank === undefined ? patch(g, 2, 2, item.color) : waterPatch(g, item.color, item.bank);
     case 'wall':

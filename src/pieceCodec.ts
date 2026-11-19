@@ -1,9 +1,9 @@
 // Reading pieces back from storage, shared by blueprints and saved games. Every reader is forgiving
 // and checks one piece at a time: what does not parse, or names an item the catalog no longer has, is
 // dropped (null) instead of breaking the load. An unknown door leaves its wall; an unknown wall goes.
-import { CATALOG, type CatalogItem } from './catalog';
+import { CATALOG, type CatalogItem, TILE_TO_TERRAIN } from './catalog';
 import type { Cell, Edge } from './geometry';
-import type { ObjectEntity, Tile, WallSegment } from './world';
+import type { ObjectEntity, TerrainCell, Tile, WallSegment } from './world';
 
 const byId = new Map<string, CatalogItem>(CATALOG.map((i) => [i.id, i]));
 export const isKind = (id: unknown, kind: CatalogItem['kind']): id is string => typeof id === 'string' && byId.get(id)?.kind === kind;
@@ -31,6 +31,19 @@ export const wall = (w: unknown): WallSegment | null => {
 export const tile = (t: unknown): Tile | null => {
   const x = t as Tile;
   return cell(x) && isKind(x.defId, 'tile') ? { x: x.x, y: x.y, defId: x.defId } : null;
+};
+
+// Terrain is every tile's ground: `grass` is the eraser, not a thing a tile can hold, so it is dropped
+export const terrain = (t: unknown): TerrainCell | null => {
+  const x = t as TerrainCell;
+  return cell(x) && isKind(x.defId, 'terrain') && x.defId !== 'grass' ? { x: x.x, y: x.y, defId: x.defId } : null;
+};
+
+// Gravel and sand were path tiles before terrain existed. Older saves and blueprints get terrain at the
+// same cell instead (and the tile leaves the tiles).
+export const oldTerrainTile = (t: unknown): string | null => {
+  const id = (t as { defId?: unknown } | null)?.defId;
+  return typeof id === 'string' && Object.hasOwn(TILE_TO_TERRAIN, id) ? (TILE_TO_TERRAIN[id] ?? null) : null;
 };
 
 export const culvert = (e: unknown): Edge | null => (edge(e) ? { axis: e.axis, x: e.x, y: e.y } : null);
