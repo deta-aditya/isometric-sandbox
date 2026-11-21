@@ -539,6 +539,28 @@ const courtOutline = (l: number): Mark[] => [
   rectMark(0, 0, l, CL, ROAD_LINE), rectMark(0, 6 - CL, l, 6, ROAD_LINE),
   rectMark(0, 0, CL, 6, ROAD_LINE), rectMark(l - CL, 0, l, 6, ROAD_LINE),
 ];
+// Mini soccer (#34): the same 12 by 6 as the basketball court; its lines are a small pitch's scaled by
+// 3/4 (penalty box 2.5 deep, goal box 1, penalty spot 2, center circle 1.4, corner arcs 0.4)
+const SK = 0.75;
+const NET = 0xd6d9de;
+const soccerEnd = (bx: number, dir: 1 | -1): Mark[] => {
+  const box = (depth: number, half: number): Mark[] => {
+    const x1 = bx + dir * depth;
+    const [a, b] = [Math.min(bx, x1), Math.max(bx, x1)];
+    return [rectMark(a, 3 - half, b, 3 - half + CL, ROAD_LINE), rectMark(a, 3 + half - CL, b, 3 + half, ROAD_LINE), rectMark(x1 - CL / 2, 3 - half, x1 + CL / 2, 3 + half, ROAD_LINE)];
+  };
+  const spotX = bx + dir * 2 * SK, r = 1.2 * SK;
+  // the arc outside the penalty box, about the penalty spot: it starts on the box's front line
+  const ang = Math.acos((2.5 * SK - 2 * SK) / r), face = dir > 0 ? 0 : Math.PI;
+  return [
+    ...box(2.5 * SK, 2.5 * SK),
+    ...box(1 * SK, 1.5 * SK),
+    sector(spotX, 3, 0, 0.07, 0, Math.PI * 2, ROAD_LINE),
+    sector(spotX, 3, r - CL / 2, r + CL / 2, face - ang, face + ang, ROAD_LINE),
+  ];
+};
+const corner = (x: number, y: number, a: number): Mark => sector(x, y, 0.3 - CL / 2, 0.3 + CL / 2, a, a + Math.PI / 2, ROAD_LINE);
+
 const COURTS: readonly ObjectDef[] = [
   flat('marking', 'courts', 'basketball-court', 'Basketball court', 12, 6, [
     ...courtOutline(12),
@@ -552,6 +574,15 @@ const COURTS: readonly ObjectDef[] = [
     ...courtOutline(6),
     sector(6, 3, 1.8 * CR - CL / 2, 1.8 * CR + CL / 2, Math.PI / 2, Math.PI * 1.5, ROAD_LINE),
     ...courtEnd(0, 1),
+  ]),
+  flat('marking', 'courts', 'mini-soccer-court', 'Mini soccer court', 12, 6, [
+    ...courtOutline(12),
+    rectMark(6 - CL / 2, 0, 6 + CL / 2, 6, ROAD_LINE),
+    sector(6, 3, 1.4 * SK - CL / 2, 1.4 * SK + CL / 2, 0, Math.PI * 2, ROAD_LINE),
+    sector(6, 3, 0, 0.08, 0, Math.PI * 2, ROAD_LINE),
+    ...soccerEnd(0, 1),
+    ...soccerEnd(12, -1),
+    corner(0, 0, 0), corner(12, 0, Math.PI / 2), corner(12, 6, Math.PI), corner(0, 6, Math.PI * 1.5),
   ]),
 ];
 
@@ -917,6 +948,29 @@ const ITEMS: readonly CatalogItem[] = [
     box(0.56, 0.9, 0.22, 0.03, 15, 1, 0xe0662a),
     box(0.56, 1.07, 0.22, 0.03, 15, 1, 0xe0662a),
     box(0.75, 0.9, 0.03, 0.2, 15, 1, 0xe0662a),
+  ]),
+
+  // A soccer goal (#34), 1 by 2 so it sits on a 6-deep pitch's center line. It stands behind the goal
+  // line with its mouth facing +x: white posts and crossbar at the front edge, and a net reaching back into
+  // the tile drawn as strands only (solid panels read as a walled pen), lower at the back as a real net
+  // slopes, and open on top.
+  obj('sports', 'soccer-goal', 'Soccer goal', 1, 2, [
+    // the net: strands only, so the grass shows through. Back (11 high), then each side stepping up from
+    // 11 at the back to 14 at the front, with a strand along the middle height of each
+    ...[0.22, 0.48, 0.74, 1.0, 1.26, 1.52, 1.76].map((y) => box(0.22, y, 0.02, 0.02, 0, 11, NET)),
+    box(0.22, 0.22, 0.02, 1.56, 5.5, 0.4, NET),
+    box(0.22, 0.22, 0.02, 1.56, 10.6, 0.4, NET),
+    ...[0.22, 1.76].flatMap((y) => [
+      box(0.42, y, 0.02, 0.02, 0, 11, NET),
+      box(0.62, y, 0.02, 0.02, 0, 14, NET),
+      box(0.24, y, 0.36, 0.02, 10.6, 0.4, NET),
+      box(0.6, y, 0.32, 0.02, 13.6, 0.4, NET),
+      box(0.24, y, 0.68, 0.02, 5.5, 0.4, NET),
+    ]),
+    // white posts and crossbar on the goal line
+    box(0.92, 0.18, 0.07, 0.07, 0, 16, 0xf4f4f0),
+    box(0.92, 1.75, 0.07, 0.07, 0, 16, 0xf4f4f0),
+    box(0.92, 0.18, 0.07, 1.64, 15, 1, 0xf4f4f0),
   ]),
 
   // Furniture: office (parts listed back to front, bottom to top)
