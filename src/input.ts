@@ -175,7 +175,8 @@ export const bindInput = (
       if (clip) {
         e.preventDefault();
         dispatch({ type: clip });
-        if (clip === 'paste') refreshHover();
+        // copy, cut and paste all leave a copy in hand now: show it under the pointer at once
+        refreshHover();
         return;
       }
     }

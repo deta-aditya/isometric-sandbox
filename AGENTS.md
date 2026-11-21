@@ -48,6 +48,7 @@ An isometric sandbox for building a school campus (walls, floors, furniture, roa
 ## Things that are easy to get wrong
 
 - **Flat ground pieces** (roads, markings) live in layers `road`, `marking`, `median` (`layerOf`). They collide only within their own layer; standing objects and walls ignore them. Click picking order: standing, median, marking, road.
+- **Clipboard (#37).** Ctrl + C copies the marks and holds the copy at once (`paste` right after `copyOf`); Ctrl + X removes the marks (one undo step) and holds them; Ctrl + V holds the clipboard again any time. Copying while a group is held only keeps a copy. A held copy stays in hand for every click until Esc.
 - **Placement of objects** goes through `buildPlan` (which may replace road pieces). Paste, blueprints and group drops use the strict `canPlaceObject`.
 - **Drags** (`state.drag`) have modes; painting drags fill gaps with `cellsBetween`. A drag is one undo step.
 - **Rotation** (R) belongs to the world and persists across item picks.

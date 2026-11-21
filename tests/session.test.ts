@@ -91,8 +91,8 @@ const room = run(initialHistory,
 const roomPieces = room.state.walls.length + room.state.objects.length + room.state.tiles.length;
 assert.ok(roomPieces > 10 && canUndo(room));
 
-h = run(room, { type: 'rotateView', dir: 1 }, { type: 'toggleGrid' }, { type: 'setWallView', view: 'down' }, ...drag(v1(SQ, 13.5, 9.5), v1(SQ, 9.5, 12.5)), { type: 'copy' },
-  { type: 'saveBlueprint' }, { type: 'undo' }, { type: 'redo' }, { type: 'toggleBulldoze' });
+h = run(room, { type: 'rotateView', dir: 1 }, { type: 'toggleGrid' }, { type: 'setWallView', view: 'down' }, ...drag(v1(SQ, 13.5, 9.5), v1(SQ, 9.5, 12.5)), { type: 'saveBlueprint' },
+  { type: 'copy' }, { type: 'cancel' }, { type: 'undo' }, { type: 'redo' }, { type: 'toggleBulldoze' });
 h = { ...h, state: { ...h.state, guides: [{ axis: 'x', at: 50 }] } };
 assert.ok(canUndo(h) && h.state.clipboard && h.state.blueprints.length === 1 && h.state.guides.length === 1);
 const undone = step(h, { type: 'undo' });

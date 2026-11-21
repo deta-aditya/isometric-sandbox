@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { pointToView } from '../src/view.ts';
-import { heldPlan, justCopied, wallAt } from '../src/world.ts';
+import { heldPlan, wallAt } from '../src/world.ts';
 import { sizeOf } from '../src/geometry.ts';
 const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
@@ -26,18 +26,18 @@ const total = (h: History) => h.state.walls.length + h.state.objects.length + h.
 const roomSize = total(world);
 
 // ===== Copy =====
+// Ctrl+C copies the marks and holds the copy at once (#37), centered on the pointer by the middle of the
+// copied things (cell 11, 10). Copying changes nothing and is not an undo step.
 let h = run(world, ...markRoom, { type: 'copy' });
 assert.ok(h.state.clipboard);
 assert.equal(h.state.clipboard.pieces.walls.length, 10);
-assert.ok(justCopied(h.state));
-assert.equal(h.past.length, world.past.length); // copying is not an undo step
-assert.equal(h.state.walls, world.state.walls);
-ok('Ctrl+C keeps the marks in the clipboard, changes nothing and is not an undo step');
-
-// ===== Paste =====
-// paste holds a copy, centered on the pointer by the middle of the copied things (cell 11, 10)
-h = run(h, { type: 'paste' }, hover(31.5, 30.5));
 assert.equal(h.state.selection?.kind, 'group');
+assert.equal(h.state.tool, 'select');
+assert.equal(h.past.length, world.past.length);
+assert.equal(h.state.walls, world.state.walls);
+ok('Ctrl+C keeps the marks in the clipboard and holds a copy at once, changing nothing');
+
+h = run(h, hover(31.5, 30.5));
 assert.equal(heldPlan(h.state)?.valid, true);
 h = run(h, { type: 'press', ...pt(31.5, 30.5) }, { type: 'release' });
 assert.equal(total(h), roomSize * 2);
@@ -53,13 +53,22 @@ assert.equal(total(h), roomSize * 3);
 assert.equal(h.past.length, world.past.length + 2);
 const ids = h.state.objects.map((o) => o.id);
 assert.equal(new Set(ids).size, ids.length);
-ok('Ctrl+V holds a copy; each click places fresh copies (new ids) and keeps holding, one undo step per drop');
+ok('each click places fresh copies (new ids) and keeps holding, one undo step per drop');
 
 // undo takes back only the last drop and lets go of the paste
 const undone = step(h, { type: 'undo' });
 assert.equal(total(undone), roomSize * 2);
 assert.equal(undone.state.selection, null);
 ok('undo takes back the last drop');
+
+// ===== Paste =====
+// Ctrl+V holds the clipboard again any time, after letting go
+h = run(world, ...markRoom, { type: 'copy' }, { type: 'cancel' });
+assert.equal(h.state.selection, null);
+h = run(h, { type: 'paste' }, ...click(31.5, 30.5));
+assert.equal(total(h), roomSize * 2);
+assert.equal(h.state.selection?.kind, 'group');
+ok('Ctrl+V holds the clipboard again after letting go');
 
 // a drop that does not fit places nothing and keeps holding: onto the original room
 h = run(world, ...markRoom, { type: 'copy' }, { type: 'paste' }, hover(11.5, 10.5));
@@ -83,14 +92,20 @@ assert.equal(copyWalls.filter((w) => w.opening === 'wooden-door').length, 1);
 ok('R turns a paste before it is placed');
 
 // ===== Cut =====
+// Ctrl+X takes the marks out (one undo step) and holds them at once; a click puts them down elsewhere
 h = run(world, ...markRoom, { type: 'cut' });
 assert.equal(total(h), 0);
 assert.equal(h.past.length, world.past.length + 1);
-h = run(h, { type: 'paste' }, ...click(31.5, 30.5));
+assert.equal(h.state.selection?.kind, 'group');
+h = run(h, ...click(31.5, 30.5));
 assert.equal(total(h), roomSize);
 assert.equal(wall(h, 'x', 31, 32)?.opening, 'wooden-door');
 assert.equal(h.past.length, world.past.length + 2);
-ok('Ctrl+X removes the marks as one undo step, and they paste back elsewhere');
+// Esc after a cut lets go: the marks stay removed (undo brings them back)
+h = run(world, ...markRoom, { type: 'cut' }, { type: 'cancel' });
+assert.equal(total(h), 0);
+assert.equal(total(step(h, { type: 'undo' })), roomSize);
+ok('Ctrl+X removes the marks as one undo step and holds them to place elsewhere');
 
 // ===== Edges =====
 // paste from the build tool switches to select; paste with an empty clipboard does nothing

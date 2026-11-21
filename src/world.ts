@@ -1486,12 +1486,6 @@ const copyOf = (pieces: Pieces, from: readonly EraseTarget[]): Clipboard => {
   return { pieces, anchor: { x: box.x + Math.floor((box.w - 1) / 2), y: box.y + Math.floor((box.h - 1) / 2) }, from };
 };
 
-// The marks are the ones last copied (the chip says so)
-export const justCopied = (s: State): boolean => {
-  const sel = s.selection, from = s.clipboard?.from;
-  return sel?.kind === 'marked' && from !== undefined && sel.targets.length === from.length && sel.targets.every((t, i) => t.target === from[i]?.target);
-};
-
 // Paste: a held copy of the clipboard (or a blueprint), in the select tool, to drop as many times as wanted
 const paste = (s: State, c: Pick<Clipboard, 'pieces' | 'anchor'> | null, name?: string): State => {
   if (!c || pieceCount(c.pieces) === 0) return s;
@@ -1806,17 +1800,25 @@ const updateInView = (state: State, action: Action): State => {
       return { ...state, rotation: turn(state.rotation, by) };
     }
 
+    // Ctrl + C copies what is marked and holds the copy at once, ready to place (#37): no separate paste.
+    // While a group is held (being moved) it only keeps a copy, since one thing is held at a time.
     case 'copy': {
       const sel = state.selection;
-      if (sel?.kind === 'marked') return { ...state, clipboard: copyOf(piecesOf(sel.targets), sel.targets) };
+      if (sel?.kind === 'marked') {
+        const clipboard = copyOf(piecesOf(sel.targets), sel.targets);
+        return paste({ ...state, clipboard }, clipboard);
+      }
       if (sel?.kind === 'group') return { ...state, clipboard: copyOf(sel.pieces, []) };
       return state;
     }
+    // Ctrl + X takes the marks out (one undo step) and holds them at once, so it picks them up to move
     case 'cut': {
       const sel = state.selection;
       if (sel?.kind !== 'marked') return state;
-      return { ...without(state, piecesOf(sel.targets)), selection: null, clipboard: copyOf(piecesOf(sel.targets), []) };
+      const clipboard = copyOf(piecesOf(sel.targets), []);
+      return paste({ ...without(state, piecesOf(sel.targets)), selection: null, clipboard }, clipboard);
     }
+    // Ctrl + V holds the clipboard again, any time
     case 'paste':
       return paste(state, state.clipboard);
 

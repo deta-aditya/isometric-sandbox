@@ -16,7 +16,7 @@ import {
 } from '../catalog';
 import { GUIDES_ENABLED, LEVELS, LEVEL_SHORT_NAMES } from '../config';
 import type { HistoryAction } from '../history';
-import { type Blueprint, type Guide, type State, type WallMode, type WallView, boxTargets, canSaveBlueprint, guideDragTarget, guideUnder, bulldozePlan, justCopied, pieceCount, culvertPlan, eraseTarget, floorFill, openingPlan, paintPlan, sourceItem, squareDraft, terrainFill, wallAt, wallDraft } from '../world';
+import { type Blueprint, type Guide, type State, type WallMode, type WallView, boxTargets, canSaveBlueprint, guideDragTarget, guideUnder, bulldozePlan, pieceCount, culvertPlan, eraseTarget, floorFill, openingPlan, paintPlan, sourceItem, squareDraft, terrainFill, wallAt, wallDraft } from '../world';
 import { BLUEPRINT_ICON, BULLDOZE_ICON, GUIDE_ICON, type Icons, PICKER_ICON, SAVE_BLUEPRINT_ICON, SELECT_ICON, squareIcon } from './icons';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, html?: string) => {
@@ -141,12 +141,11 @@ const toolChip = (state: State): Readonly<{ icon: string; title: string; detail:
         case 'marked': {
           const n = sel.targets.length;
           const only = sel.targets[0];
-          const copied = justCopied(state) ? 'Copied · Ctrl+V to paste' : null;
           if (n === 1 && only) {
             const def = getItem(sourceItem(only));
-            return { icon: def.id, title: def.name, detail: copied ?? 'Del to remove' };
+            return { icon: def.id, title: def.name, detail: 'Del to remove' };
           }
-          return { icon: SELECT_ICON, title: `${n} selected`, detail: copied ?? 'click to move' };
+          return { icon: SELECT_ICON, title: `${n} selected`, detail: 'click to move' };
         }
       }
     }
