@@ -584,6 +584,19 @@ const COURTS: readonly ObjectDef[] = [
     ...soccerEnd(12, -1),
     corner(0, 0, 0), corner(12, 0, Math.PI / 2), corner(12, 6, Math.PI), corner(0, 6, Math.PI * 1.5),
   ]),
+  // Tennis (#35), also 12 by 6: doubles sidelines on the edge, singles sidelines 0.75 in, service lines
+  // 3.23 either side of the middle (where the net stands; real courts paint no line there), the center
+  // service line between them, and a short center mark on each baseline
+  flat('marking', 'courts', 'tennis-court', 'Tennis court', 12, 6, [
+    ...courtOutline(12),
+    rectMark(0, 0.75, 12, 0.75 + CL, ROAD_LINE),
+    rectMark(0, 6 - 0.75 - CL, 12, 6 - 0.75, ROAD_LINE),
+    rectMark(6 - 3.23 - CL / 2, 0.75, 6 - 3.23 + CL / 2, 6 - 0.75, ROAD_LINE),
+    rectMark(6 + 3.23 - CL / 2, 0.75, 6 + 3.23 + CL / 2, 6 - 0.75, ROAD_LINE),
+    rectMark(6 - 3.23, 3 - CL / 2, 6 + 3.23, 3 + CL / 2, ROAD_LINE),
+    rectMark(0, 3 - CL / 2, 0.18, 3 + CL / 2, ROAD_LINE),
+    rectMark(12 - 0.18, 3 - CL / 2, 12, 3 + CL / 2, ROAD_LINE),
+  ]),
 ];
 
 
@@ -971,6 +984,18 @@ const ITEMS: readonly CatalogItem[] = [
     box(0.92, 0.18, 0.07, 0.07, 0, 16, 0xf4f4f0),
     box(0.92, 1.75, 0.07, 0.07, 0, 16, 0xf4f4f0),
     box(0.92, 0.18, 0.07, 1.64, 15, 1, 0xf4f4f0),
+  ]),
+
+  // A tennis net (#35), 2 by 6 so it stands on a 12-long court's middle line (x = 1 in its footprint) in
+  // every facing: a gray post at each end, a thin dark band in two halves either side of a white center
+  // strap, and a white tape along the top.
+  obj('sports', 'tennis-net', 'Tennis net', 2, 6, [
+    box(0.95, 0.05, 0.1, 0.1, 0, 8, 0x5b6470),
+    box(0.95, 5.85, 0.1, 0.1, 0, 8, 0x5b6470),
+    box(0.98, 0.15, 0.04, 2.82, 0.6, 5.7, 0x2f3439),
+    box(0.98, 3.03, 0.04, 2.82, 0.6, 5.7, 0x2f3439),
+    box(0.98, 2.97, 0.04, 0.06, 0.6, 5.7, 0xf4f4f0),
+    box(0.98, 0.15, 0.04, 5.7, 6.3, 0.7, 0xf4f4f0),
   ]),
 
   // Furniture: office (parts listed back to front, bottom to top)
@@ -1488,6 +1513,7 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'floors', id: 'court-blue', name: 'Court blue', color: 0x3966bf },
   { kind: 'tile', group: 'floors', id: 'court-green', name: 'Court green', color: 0x5a9f80 },
   { kind: 'tile', group: 'floors', id: 'court-red', name: 'Court red', color: 0xc0504a },
+  { kind: 'tile', group: 'floors', id: 'court-yellow', name: 'Court yellow', color: 0xd6a033 },
   { kind: 'tile', group: 'floors', id: 'mowed-grass', name: 'Mowed grass', color: 0x5fa04a, stripe: 0x4f8c3d },
   { kind: 'tile', group: 'floors', id: 'turf-grass', name: 'Turf grass', color: 0x34a865 },
 

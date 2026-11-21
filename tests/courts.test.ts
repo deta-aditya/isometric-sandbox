@@ -6,7 +6,7 @@ const pt = (x: number, y: number): Omit<Extract<HistoryAction, { type: 'press' }
 let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
 // #33: court markings are white lines only, inside their footprint, 12 by 6 and 6 by 6
-for (const [id, w, h] of [['basketball-court', 12, 6], ['half-basketball-court', 6, 6], ['mini-soccer-court', 12, 6]] as const) {
+for (const [id, w, h] of [['basketball-court', 12, 6], ['half-basketball-court', 6, 6], ['mini-soccer-court', 12, 6], ['tennis-court', 12, 6]] as const) {
   const def = getItem(id);
   assert.ok(def.kind === 'object' && def.layer === 'marking' && def.group === 'courts');
   assert.equal(def.w, w); assert.equal(def.h, h);
@@ -14,10 +14,10 @@ for (const [id, w, h] of [['basketball-court', 12, 6], ['half-basketball-court',
   def.marks!.forEach((m) => m.pts.forEach(([x, y]) => assert.ok(x >= -1e-9 && x <= w + 1e-9 && y >= -1e-9 && y <= h + 1e-9, `${id} point ${x},${y}`)));
   assert.ok(def.marks!.every((m) => m.color === def.marks![0]!.color), 'one line color');
 }
-ok('the court markings (basketball, half court, mini soccer) are lines only, inside their footprints');
+ok('the court markings (basketball, half court, mini soccer, tennis) are lines only, inside their footprints');
 
 // the court is symmetric end to end: every line of one end has its mirror at the other
-for (const id of ['basketball-court', 'mini-soccer-court']) {
+for (const id of ['basketball-court', 'mini-soccer-court', 'tennis-court']) {
   const marks = (getItem(id) as Extract<ReturnType<typeof getItem>, { kind: 'object' }>).marks!;
   // (each line by its outline box, within a small tolerance: arcs are sampled at angles that need not
   // mirror point for point)
@@ -53,11 +53,11 @@ ok('courts go on a painted floor or plain grass, and a hoop stands on a court');
 
 // the new floors
 {
-  ['court-blue', 'court-green', 'court-red', 'mowed-grass', 'turf-grass'].forEach((id) => assert.equal(getTileDef(id).group, 'floors'));
+  ['court-blue', 'court-green', 'court-red', 'court-yellow', 'mowed-grass', 'turf-grass'].forEach((id) => assert.equal(getTileDef(id).group, 'floors'));
   const mowed = getTileDef('mowed-grass');
   assert.ok(mowed.stripe !== undefined && mowed.stripe !== mowed.color);
 }
-ok('five new floors in the Floors tab; mowed grass has a second stripe color');
+ok('six new floors in the Floors tab; mowed grass has a second stripe color');
 
 // the soccer goal is a 1 by 2 standing object beside the hoop
 {
@@ -65,3 +65,11 @@ ok('five new floors in the Floors tab; mowed grass has a second stripe color');
   assert.ok(goal.kind === 'object' && goal.group === 'sports' && goal.w === 1 && goal.h === 2 && !goal.layer);
 }
 ok('the soccer goal is a 1 by 2 object in Scenery > Sports');
+
+// the tennis net is a 2 by 6 standing object; its band lies on the middle of its footprint (x = 1)
+{
+  const net = getItem('tennis-net');
+  assert.ok(net.kind === 'object' && net.group === 'sports' && net.w === 2 && net.h === 6 && !net.layer);
+  assert.ok(net.parts!.every((p) => p.dx <= 1 + 1e-9 && p.dx + p.w >= 1 - 1e-9), 'every part straddles the middle line');
+}
+ok('the tennis net is a 2 by 6 object standing on its middle line');
