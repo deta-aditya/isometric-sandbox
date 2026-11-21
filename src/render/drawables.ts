@@ -1,4 +1,5 @@
 // Pure: turns State into a depth-sorted list of things to draw, with previews merged in.
+import { arrowLook } from '../arrows';
 import { type FenceLook, type GlassLook, floats, getItem, getOpeningDef, getPaint, getObjectDef, getTileDef, getWallStyle, isFlat, isPole, isSmart, isWaterTile, layerOf, occupiedCells } from '../catalog';
 import { CANAL_DEPTH, CUT_WALL_H, STREAM_SINK, TILE_H, TILE_W, WALL_H } from '../config';
 import { depthSort } from '../depthSort';
@@ -271,8 +272,11 @@ export const buildDrawables = (state: State, win: ScreenWindow | null = null) =>
     const has = (dx: number, dy: number) => smartAt.has(`${o.defId}@${cellKey({ x: o.x + dx, y: o.y + dy })}`);
     return { ...o, joins: [has(0, -1), has(1, 0), has(0, 1), has(-1, 0)], paved: refuges.has(cellKey(o)) };
   };
+  // lane arrows paint themselves to fit the road under them (#40), placed or held
+  const roadPieces = [...placed, ...allGhosts].filter((o) => layerOf(o.defId) === 'road');
+  const withLook = (o: ObjectDrawable): ObjectDrawable => (getObjectDef(o.defId).arrow ? { ...o, ...arrowLook(o, roadPieces) } : o);
   const flats = (['road', 'marking', 'median'] as const).flatMap((layer) =>
-    [...placed, ...allGhosts].filter((o) => layerOf(o.defId) === layer).map(withJoins));
+    [...placed, ...allGhosts].filter((o) => layerOf(o.defId) === layer).map(withJoins).map(withLook));
 
   // Valid ghosts join the sort; invalid ones may overlap others, so they are drawn on top
   // canopies come after objects, so on a shared cell the canopy is drawn over what stands under it

@@ -170,7 +170,15 @@ export type ObjectDef = Base &
     run?: true;
     // a median under this marking shows a paved refuge (crosswalks)
     refuge?: true;
+    // a lane arrow (#40): it paints itself to fit what it lies on (see arrows.ts); `marks` is its look
+    // off road, for the tray icon and anywhere without lanes
+    arrow?: ArrowKind;
+    // a straight road whose lanes an arrow fits into
+    lanes?: RoadClass;
   }>;
+export type ArrowKind = 'straight' | 'left' | 'right';
+export type RoadClass = 'wide' | 'narrow';
+export type ArrowPaint = RoadClass | 'off';
 // A tile with a bank color is water: it joins up with neighboring water and draws banks where it doesn't
 // stripe: a second color for every other tile, in rows that keep their direction in the world as the
 // camera turns (mowed grass)
@@ -405,6 +413,72 @@ const laneLines = (width: number): readonly LaneLine[] =>
 
 // A quarter turn about (0, cy) whose inner and outer radii (rIn(t), rOut(t), t from 0 at the entry to
 // 1 at the exit) may change along it: a plain curve keeps them, a turn transition narrows the road.
+// ===== Lane arrows (#40) =====
+// Where the middle of each lane lies across a straight road of a class, from its y = 0 side: halfway
+// between the lines that bound it (edge lines, lane lines; a wide road's middle divider row is no lane).
+// Each lane is given as [from, to, middle].
+export const laneSpans = (cls: RoadClass): readonly (readonly [number, number, number])[] => {
+  const width = cls === 'wide' ? WIDE : NARROW;
+  const bounds = [(EDGE[0] + EDGE[1]) / 2, ...laneLines(width).map((l) => l.at), width - (EDGE[0] + EDGE[1]) / 2];
+  return bounds.slice(1).map((to, i) => [bounds[i] ?? 0, to, ((bounds[i] ?? 0) + to) / 2] as const)
+    .filter(([from, to]) => !(cls === 'wide' && from === 2 && to === 3));
+};
+// One shape for all three arrows in a paint, so heads match: length along +x, width across (the whole
+// arrow, turns included, fits in it), shaft thickness, and the head's length and width
+const ARROW_SIZE: Record<ArrowPaint, Readonly<{ len: number; across: number; shaft: number; headLen: number; headW: number }>> = {
+  wide: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
+  narrow: { len: 1.7, across: 0.56, shaft: 0.09, headLen: 0.3, headW: 0.28 },
+  off: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
+};
+// A thick line along a path of points, as one polygon (left side out, right side back)
+const thickPath = (path: readonly MarkPoint[], t: number): MarkPoint[] => {
+  const side = (sign: number) => path.map(([x, y], i) => {
+    const [ax, ay] = path[Math.max(i - 1, 0)] ?? [x, y];
+    const [bx, by] = path[Math.min(i + 1, path.length - 1)] ?? [x, y];
+    const n = Math.hypot(bx - ax, by - ay) || 1;
+    return [x - ((by - ay) / n) * sign * t / 2, y + ((bx - ax) / n) * sign * t / 2] as const;
+  });
+  return [...side(1), ...side(-1).reverse()];
+};
+// An arrow of a kind in a paint, in a 3 by 1 row pointing along +x, centered in the row. A turn's shaft
+// runs along the side away from its turn, then bends in a quarter circle; its head is the straight
+// arrow's head, pointing across.
+const arrowMarksCache = new Map<string, Mark[]>();
+export function arrowMarks(kind: ArrowKind, paint: ArrowPaint): Mark[] {
+  const key = `${kind}:${paint}`;
+  const cached = arrowMarksCache.get(key);
+  if (cached) return cached;
+  const { len, across, shaft, headLen, headW } = ARROW_SIZE[paint];
+  const x0 = (3 - len) / 2;
+  const cy = 0.5;
+  const head = (tx: number, ty: number, dx: number, dy: number): Mark => {
+    const bx = tx - dx * headLen;
+    const by = ty - dy * headLen;
+    return { pts: [[tx, ty], [bx - dy * headW / 2, by + dx * headW / 2], [bx + dy * headW / 2, by - dx * headW / 2]], color: ROAD_LINE };
+  };
+  let marks: Mark[];
+  if (kind === 'straight') {
+    marks = [
+      { pts: thickPath([[x0, cy], [x0 + len - headLen + 0.01, cy]], shaft), color: ROAD_LINE },
+      head(x0 + len, cy, 1, 0),
+    ];
+  } else {
+    const s = kind === 'left' ? -1 : 1; // a left turn bends toward -y
+    const ys = cy - s * (across / 2 - shaft / 2);
+    const r = across - shaft / 2 - headLen - 0.02;
+    const xb = x0 + len - headW / 2 - r;
+    const bend = Array.from({ length: 12 }, (_, i) => {
+      const a = ((i + 1) * Math.PI) / 24;
+      return [xb + r * Math.sin(a), ys + s * r * (1 - Math.cos(a))] as const;
+    });
+    const path: MarkPoint[] = [[x0, ys], [xb, ys], ...bend];
+    const [ex] = path[path.length - 1] ?? [xb, ys];
+    marks = [{ pts: thickPath(path, shaft), color: ROAD_LINE }, head(ex, cy + s * across / 2, 0, s)];
+  }
+  arrowMarksCache.set(key, marks);
+  return marks;
+}
+
 // Edge lines follow both sides; `lines` gives the lines inside, each at a radius along the turn, dashed
 // ones half a tile on, half off.
 type TurnLine = Readonly<{ r: (t: number) => number; dashed: boolean }>;
@@ -1388,9 +1462,9 @@ const ITEMS: readonly CatalogItem[] = [
   ].map((o): OpeningDef => ({ ...o, gate: true })),
 
   // Flooring: wide roads (5 across; flat road surfaces that turn with R and join end to end)
-  { ...flat('road', 'roads', 'wide-straight', 'Straight road', 1, WIDE, straight(WIDE)), run: true },
-  { ...flat('road', 'roads', 'wide-dashed', '1 side dashed', 1, WIDE, straight(WIDE, 1)), run: true },
-  { ...flat('road', 'roads', 'wide-dashed2', '2 sides dashed', 1, WIDE, straight(WIDE, 2)), run: true },
+  { ...flat('road', 'roads', 'wide-straight', 'Straight road', 1, WIDE, straight(WIDE)), run: true, lanes: 'wide' },
+  { ...flat('road', 'roads', 'wide-dashed', '1 side dashed', 1, WIDE, straight(WIDE, 1)), run: true, lanes: 'wide' },
+  { ...flat('road', 'roads', 'wide-dashed2', '2 sides dashed', 1, WIDE, straight(WIDE, 2)), run: true, lanes: 'wide' },
   flat('road', 'roads', 'wide-sharp', 'Sharp curve', wideSharp.size, wideSharp.size, wideSharp.marks, wideSharp.cells),
   flat('road', 'roads', 'wide-gentle', 'Gentle curve', wideGentle.size, wideGentle.size, wideGentle.marks, wideGentle.cells),
   flat('road', 'roads', 'wide-t', 'T-junction', WIDE, WIDE, junction(WIDE, WIDE, true)),
@@ -1398,9 +1472,9 @@ const ITEMS: readonly CatalogItem[] = [
   flat('road', 'roads', 'wide-end', 'Road end', 1, WIDE, roadEnd(WIDE, 0.8)),
 
   // Flooring: narrow roads (3 across)
-  { ...flat('road', 'narrow', 'narrow-straight', 'Narrow road', 1, NARROW, straight(NARROW)), run: true },
-  { ...flat('road', 'narrow', 'narrow-dashed', 'Narrow, 1 dashed', 1, NARROW, straight(NARROW, 1)), run: true },
-  { ...flat('road', 'narrow', 'narrow-dashed2', 'Narrow, 2 dashed', 1, NARROW, straight(NARROW, 2)), run: true },
+  { ...flat('road', 'narrow', 'narrow-straight', 'Narrow road', 1, NARROW, straight(NARROW)), run: true, lanes: 'narrow' },
+  { ...flat('road', 'narrow', 'narrow-dashed', 'Narrow, 1 dashed', 1, NARROW, straight(NARROW, 1)), run: true, lanes: 'narrow' },
+  { ...flat('road', 'narrow', 'narrow-dashed2', 'Narrow, 2 dashed', 1, NARROW, straight(NARROW, 2)), run: true, lanes: 'narrow' },
   flat('road', 'narrow', 'narrow-sharp', 'Narrow bend', narrowSharp.size, narrowSharp.size, narrowSharp.marks, narrowSharp.cells),
   flat('road', 'narrow', 'narrow-gentle', 'Narrow curve', narrowGentle.size, narrowGentle.size, narrowGentle.marks, narrowGentle.cells),
   flat('road', 'narrow', 'narrow-t', 'Narrow T', NARROW, NARROW, junction(NARROW, NARROW, true)),
@@ -1453,22 +1527,11 @@ const ITEMS: readonly CatalogItem[] = [
   // a median strip, one tile at a time: a curb around a planting bed that joins its neighbors like a
   // canal does, rounding off wherever it ends. Drag it along the middle of a wide road; plant trees on it
   { kind: 'object', group: 'markings', id: 'median', name: 'Median strip', w: 1, h: 1, parts: [], marks: [], layer: 'median', smart: 'median' },
-  // lane arrows, pointing along +x, each inside its own 1 by 3 row with space around it (a wide road's
-  // lanes are 1 tile)
-  flat('marking', 'markings', 'arrow-straight', 'Straight arrow', 3, 1, [
-    rectMark(0.45, 0.45, 2, 0.55, ROAD_LINE),
-    { pts: [[2, 0.28], [2.55, 0.5], [2, 0.72]], color: ROAD_LINE },
-  ]),
-  flat('marking', 'markings', 'arrow-left', 'Left turn arrow', 3, 1, [
-    rectMark(0.45, 0.45, 1.78, 0.55, ROAD_LINE),
-    rectMark(1.68, 0.3, 1.78, 0.55, ROAD_LINE),
-    { pts: [[1.56, 0.3], [1.9, 0.3], [1.73, 0.12]], color: ROAD_LINE },
-  ]),
-  flat('marking', 'markings', 'arrow-right', 'Right turn arrow', 3, 1, [
-    rectMark(0.45, 0.45, 1.78, 0.55, ROAD_LINE),
-    rectMark(1.68, 0.45, 1.78, 0.7, ROAD_LINE),
-    { pts: [[1.56, 0.7], [1.9, 0.7], [1.73, 0.88]], color: ROAD_LINE },
-  ]),
+  // lane arrows, pointing along +x in a 3 by 1 row (#40): drawn by `arrowMarks` in the size that fits
+  // what they lie on; these marks are the off-road look
+  { ...flat('marking', 'markings', 'arrow-straight', 'Straight arrow', 3, 1, arrowMarks('straight', 'off')), arrow: 'straight' },
+  { ...flat('marking', 'markings', 'arrow-left', 'Left turn arrow', 3, 1, arrowMarks('left', 'off')), arrow: 'left' },
+  { ...flat('marking', 'markings', 'arrow-right', 'Right turn arrow', 3, 1, arrowMarks('right', 'off')), arrow: 'right' },
   // a car bay, open at +y: half-width side lines, so bays side by side share one full line
   flat('marking', 'markings', 'car-bay', 'Car bay', 2, 4, [
     rectMark(0, 0, 0.06, 4, ROAD_LINE),
@@ -1664,12 +1727,15 @@ const turnPoint = ([x, y]: MarkPoint, W: number, H: number, r: Rotation): MarkPo
 };
 
 const turnedMarks = new Map<string, readonly Mark[]>();
-export const marksOf = (def: ObjectDef, r: Rotation): readonly Mark[] => {
+// A piece's marks turned to a facing. A lane arrow may be given its paint and how far to slide across
+// its row (in its own unturned y), to sit in the middle of a lane (#40)
+export const marksOf = (def: ObjectDef, r: Rotation, paint?: ArrowPaint, shift = 0): readonly Mark[] => {
   if (!def.marks) return [];
-  const key = `${def.id}:${r}`;
+  const own = def.arrow && paint ? arrowMarks(def.arrow, paint) : def.marks;
+  const key = `${def.id}:${r}:${def.arrow && paint ? paint : ''}:${shift}`;
   const cached = turnedMarks.get(key);
   if (cached) return cached;
-  const marks = def.marks.map((m) => ({ ...m, pts: m.pts.map((p) => turnPoint(p, def.w, def.h, r)) }));
+  const marks = own.map((m) => ({ ...m, pts: m.pts.map(([x, y]) => turnPoint([x, y + shift], def.w, def.h, r)) }));
   turnedMarks.set(key, marks);
   return marks;
 };

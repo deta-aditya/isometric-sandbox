@@ -1,13 +1,13 @@
 // Composite drawing for catalog objects, built from the shape primitives.
 import type { Graphics } from 'pixi.js';
-import { type Rotation, getObjectDef, marksOf, partsOf } from '../catalog';
+import { type ArrowPaint, type Rotation, getObjectDef, marksOf, partsOf } from '../catalog';
 import { type Cell, toScreen } from '../geometry';
 import { SHAPES } from './shapes';
 
 // `joins` says which sides a smart piece meets a neighbor of its own kind: [-y, +x, +y, -x]
 export type Joins = readonly [boolean, boolean, boolean, boolean];
 // sink: pixels to lower the whole object by (something floating on sunken water)
-export type ObjectLook = Cell & Readonly<{ defId: string; rotation: Rotation; alpha: number; joins?: Joins; paved?: boolean; sink?: number }>;
+export type ObjectLook = Cell & Readonly<{ defId: string; rotation: Rotation; alpha: number; joins?: Joins; paved?: boolean; sink?: number; paint?: ArrowPaint; shift?: number }>;
 
 export const drawObject = (g: Graphics, item: ObjectLook): void => {
   const def = getObjectDef(item.defId);
@@ -58,7 +58,7 @@ const drawMedian = (g: Graphics, item: ObjectLook, [n, e, s, w]: Joins): void =>
 
 // A flat ground piece: its marks as polygons on the ground, in the order listed
 const drawMarks = (g: Graphics, item: ObjectLook): void =>
-  marksOf(getObjectDef(item.defId), item.rotation).forEach((m) => {
+  marksOf(getObjectDef(item.defId), item.rotation, item.paint, item.shift).forEach((m) => {
     const pts = m.pts.flatMap(([x, y]) => {
       const p = toScreen(item.x + x, item.y + y);
       return [p.sx, p.sy];

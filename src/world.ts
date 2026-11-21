@@ -1,4 +1,5 @@
 // World logic: pure state and transitions. No Pixi, no DOM.
+import { snapArrow } from './arrows';
 import { type View, fromView, toView, turnAbout, turnView } from './view';
 import { CUT_WALL_H, DEFAULT_GRID, EDGE_PICK, LEVELS, ROOF_LEVEL, TILE_H, WALL_H } from './config';
 import {
@@ -473,6 +474,7 @@ export const objectCandidate = (s: State, cell: Cell): ObjectPlacement | null =>
   // flat pieces (roads, markings) sit centered on the pointer, so you point at the middle of the road
   const [dx, dy] = isFlat(item.id) ? [Math.floor((size.w - 1) / 2), Math.floor((size.h - 1) / 2)] : [0, 0];
   const at = { defId: item.id, rotation: s.rotation, x: cell.x - dx, y: cell.y - dy, ...size };
+  if (getObjectDef(item.id).arrow) return snapArrow(at, s.objects.filter((o) => layerOf(o.defId) === 'road'), s.point);
   return layerOf(item.id) === 'road' && !isRun(item.id) ? snapToRoad(s, cell, at) : at;
 };
 
