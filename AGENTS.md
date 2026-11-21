@@ -4,7 +4,7 @@ Read this first. It replaces exploring the code to learn how things fit together
 
 ## The project
 
-An isometric sandbox for building a school campus (walls, floors, furniture, roads, water). PixiJS v8 + TypeScript + Vite, no framework. Published as a claude.ai artifact. The owner (Deta) is a senior TypeScript engineer who prefers functional programming and immutable data. Plans live in `Todos.md` (also the project doc "Todos").
+An isometric sandbox for building a school campus (walls, floors, furniture, roads, water). PixiJS v8 + TypeScript + Vite, no framework. Published as a claude.ai artifact. The owner (Deta) is a senior TypeScript engineer who prefers functional programming and immutable data. Plans live in `Todos.md` (also the project doc "Todos"); what players see as new lives in `CHANGELOG.md` (also the project doc "Changelog").
 
 ## Rules for any change
 
@@ -84,6 +84,7 @@ Run `./check.sh` after every change and keep going until it says `ALL GREEN`. Do
 3. Call the artifact `publish_files` tool with exactly that.
 4. `python3 tools/publish_plan.py --record <new version>` with the version the publish returned.
 5. Add a Done row to `Todos.md` and write it to the project doc "Todos".
+6. Add the todo to "Waiting to be logged" in `CHANGELOG.md` (also the project doc "Changelog"). Move it into the Log only when Deta says it is ready (it may be done but buggy, or not as wished): a short player-facing entry under that day's date, with the todo numbers. Write both docs after every change.
 
 ## Working as a helper
 
