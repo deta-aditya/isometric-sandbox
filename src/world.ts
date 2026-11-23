@@ -518,10 +518,19 @@ export const buildPlan = (s: State, p: ObjectPlacement, run = false): BuildPlan 
   return canPlaceObject(rest, p) ? { ok: true, replaced } : no;
 };
 
+// Lane arrows are paint, and dirt roads have nothing painted on them (#31b): an arrow may not touch a
+// dirt road piece. Dirt road pieces are the Dirt roads tab, Dirt to paved included.
+const onDirt = (s: State, p: ObjectPlacement): boolean => {
+  if (!getObjectDef(p.defId).arrow) return false;
+  const mine = new Set(occupiedCells(p).map(cellKey));
+  return s.objects.some((o) => getObjectDef(o.defId).group === 'dirtroad' && occupiedCells(o).some((c) => mine.has(cellKey(c))));
+};
+
 // Objects may sit against walls but never across one
 export const canPlaceObject = (s: State, p: ObjectPlacement): boolean =>
   rectInBounds(s.size, p) &&
   !s.objects.some((o) => sharesCells(o, p)) &&
+  !onDirt(s, p) &&
   !s.walls.some((w) => edgeThrough(w, p)) &&
   !occupiedCells(p).some((c) => hiddenUnderRoof(s, c));
 

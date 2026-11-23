@@ -30,7 +30,7 @@ export type GroupId =
   | 'paths'
   | 'roads'
   | 'narrow'
-  | 'links'
+  | 'busbay'
   | 'small'
   | 'dirtroad'
   | 'markings'
@@ -92,7 +92,7 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'narrow', name: 'Medium roads' },
       { id: 'small', name: 'Narrow roads' },
       { id: 'dirtroad', name: 'Dirt roads' },
-      { id: 'links', name: 'Road links' },
+      { id: 'busbay', name: 'Bus bay' },
       { id: 'markings', name: 'Markings' },
       { id: 'courts', name: 'Courts' },
       { id: 'water', name: 'Water' },
@@ -181,7 +181,7 @@ export type ObjectDef = Base &
     lanes?: RoadClass;
   }>;
 export type ArrowKind = 'straight' | 'left' | 'right';
-export type RoadClass = 'wide' | 'medium';
+export type RoadClass = 'wide' | 'medium' | 'narrow';
 export type ArrowPaint = RoadClass | 'off';
 // A tile with a bank color is water: it joins up with neighboring water and draws banks where it doesn't
 // stripe: a second color for every other tile, in rows that keep their direction in the world as the
@@ -423,8 +423,10 @@ const laneLines = (width: number): readonly LaneLine[] =>
 // between the lines that bound it (edge lines, lane lines; a wide road's middle divider row is no lane).
 // Each lane is given as [from, to, middle].
 export const laneSpans = (cls: RoadClass): readonly (readonly [number, number, number])[] => {
-  const width = cls === 'wide' ? WIDE : NARROW;
-  const bounds = [(EDGE[0] + EDGE[1]) / 2, ...laneLines(width).map((l) => l.at), width - (EDGE[0] + EDGE[1]) / 2];
+  const width = cls === 'wide' ? WIDE : cls === 'medium' ? NARROW : SMALL;
+  // a narrow road has no center line, but its two lanes still meet in the middle
+  const inner = cls === 'narrow' ? [SMALL / 2] : laneLines(width).map((l) => l.at);
+  const bounds = [(EDGE[0] + EDGE[1]) / 2, ...inner, width - (EDGE[0] + EDGE[1]) / 2];
   return bounds.slice(1).map((to, i) => [bounds[i] ?? 0, to, ((bounds[i] ?? 0) + to) / 2] as const)
     .filter(([from, to]) => !(cls === 'wide' && from === 2 && to === 3));
 };
@@ -432,6 +434,7 @@ export const laneSpans = (cls: RoadClass): readonly (readonly [number, number, n
 // arrow, turns included, fits in it), shaft thickness, and the head's length and width
 const ARROW_SIZE: Record<ArrowPaint, Readonly<{ len: number; across: number; shaft: number; headLen: number; headW: number }>> = {
   wide: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
+  narrow: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
   medium: { len: 1.7, across: 0.56, shaft: 0.09, headLen: 0.3, headW: 0.28 },
   off: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
 };
@@ -527,14 +530,18 @@ const curve = (width: number, inner: number) => {
   const { marks, inside } = quarterTurn(size, () => inner, () => size, lines);
   return { marks, cells: cellsWhere(size, size, inside), size };
 };
-// A turn that narrows a wide road to a narrow one about a tight inside corner: it enters wide at x = 0
-// and leaves narrow through y = 5, turning right (toward +y). Mirrored, it turns left.
-const turnTransition = (() => {
-  // the outer edge draws in from 5 to 3, but never past x = 3, so near the exit it runs straight
-  const out = (t: number) => Math.min(WIDE - (WIDE - NARROW) * t, NARROW / Math.max(1e-6, Math.sin((t * Math.PI) / 2)));
-  const { marks, inside } = quarterTurn(WIDE, () => 0, out);
-  return { marks, cells: cellsWhere(NARROW, WIDE, inside) };
-})();
+// A turn that narrows a road `from` across to `to` across about a tight inside corner: it enters at
+// x = 0 and leaves through y = from, turning right (toward +y). Mirrored, it turns left. Wide to medium
+// and, since #31b, medium to narrow.
+const turnTransition = (from: number, to: number) => {
+  // the outer edge draws in from `from` to `to`, but never past x = to, so near the exit it runs straight
+  const out = (t: number) => Math.min(from - (from - to) * t, to / Math.max(1e-6, Math.sin((t * Math.PI) / 2)));
+  // a narrow road has no center line, so a turn down to one carries none
+  const { marks, inside } = to === SMALL ? quarterTurn(from, () => 0, out, []) : quarterTurn(from, () => 0, out);
+  return { marks, cells: cellsWhere(to, from, inside) };
+};
+const wideTurn = turnTransition(WIDE, NARROW);
+const mediumTurn = turnTransition(NARROW, SMALL);
 const mirrorY = (h: number) => (m: Mark): Mark => ({ ...m, pts: m.pts.map(([x, y]) => [x, h - y] as MarkPoint) });
 
 // A straight line of width w from (x0, y0) to (x1, y1), as a thin quad
@@ -660,6 +667,28 @@ const smallBend = curve(SMALL, 1);
 const smallCurve = curve(SMALL, 3);
 const dirtBend = dirtCurve(1);
 const dirtGentle = dirtCurve(3);
+// A bus stop box (#31c): a yellow outline inside a bus bay's lane, BUS in block letters reading along it
+const busBox: Mark[] = (() => {
+  const Y = BAY_YELLOW;
+  const [y0, y1] = [0.22, 1.5];
+  const t = 0.07;
+  const box = [rectMark(0.12, y0, 2.88, y0 + t, Y), rectMark(0.12, y1 - t, 2.88, y1, Y), rectMark(0.12, y0, 0.12 + t, y1, Y), rectMark(2.88 - t, y0, 2.88, y1, Y)];
+  const s = 0.11; // letter stroke
+  const [ly0, ly1] = [0.42, 1.3];
+  const lm = (ly0 + ly1) / 2;
+  const w = 0.5;
+  const B = (x: number): Mark[] => [
+    rectMark(x, ly0, x + s, ly1, Y),
+    rectMark(x, ly0, x + w - 0.08, ly0 + s, Y), rectMark(x, lm - s / 2, x + w - 0.04, lm + s / 2, Y), rectMark(x, ly1 - s, x + w, ly1, Y),
+    rectMark(x + w - 0.08 - s, ly0, x + w - 0.08, lm, Y), rectMark(x + w - s, lm, x + w, ly1, Y),
+  ];
+  const U = (x: number): Mark[] => [rectMark(x, ly0, x + s, ly1, Y), rectMark(x + w - s, ly0, x + w, ly1, Y), rectMark(x, ly1 - s, x + w, ly1, Y)];
+  const S = (x: number): Mark[] => [
+    rectMark(x, ly0, x + w, ly0 + s, Y), rectMark(x, ly0, x + s, lm, Y), rectMark(x, lm - s / 2, x + w, lm + s / 2, Y),
+    rectMark(x + w - s, lm, x + w, ly1, Y), rectMark(x, ly1 - s, x + w, ly1, Y),
+  ];
+  return [...box, ...B(0.6), ...U(1.25), ...S(1.9)];
+})();
 const wideSharp = curve(WIDE, 1);
 const wideGentle = curve(WIDE, 4);
 const narrowSharp = curve(NARROW, 1);
@@ -1566,14 +1595,14 @@ const ITEMS: readonly CatalogItem[] = [
 
 
   // Flooring: narrow roads (2 across, edge lines only) and their links to medium roads (#31)
-  { ...flat('road', 'small', 'small-straight', 'Narrow road', 1, SMALL, straight(SMALL)), run: true },
+  { ...flat('road', 'small', 'small-straight', 'Narrow road', 1, SMALL, straight(SMALL)), run: true, lanes: 'narrow' },
+  { ...flat('road', 'small', 'small-dashed', 'Narrow, 1 dashed', 1, SMALL, straight(SMALL, 1)), run: true, lanes: 'narrow' },
+  { ...flat('road', 'small', 'small-dashed2', 'Narrow, 2 dashed', 1, SMALL, straight(SMALL, 2)), run: true, lanes: 'narrow' },
   flat('road', 'small', 'small-sharp', 'Narrow bend', smallBend.size, smallBend.size, smallBend.marks, smallBend.cells),
   flat('road', 'small', 'small-gentle', 'Narrow curve', smallCurve.size, smallCurve.size, smallCurve.marks, smallCurve.cells),
   flat('road', 'small', 'small-t', 'Narrow T', SMALL, SMALL, junction(SMALL, SMALL, true)),
   flat('road', 'small', 'small-cross', 'Narrow cross', SMALL, SMALL, junction(SMALL, SMALL, false)),
   flat('road', 'small', 'small-end', 'Narrow end', 1, SMALL, roadEnd(SMALL, 0.7)),
-  flat('road', 'small', 'small-t-medium', 'T into medium', SMALL, NARROW, junction(SMALL, NARROW, true)),
-  flat('road', 'small', 'small-taper', 'Medium to narrow', 2, NARROW, narrowing),
   // Flooring: dirt roads (2 across), joined to paved narrow roads by Dirt to paved (#31)
   { ...flat('road', 'dirtroad', 'dirt-straight', 'Dirt road', 1, SMALL, dirtStraight), run: true },
   flat('road', 'dirtroad', 'dirt-sharp', 'Dirt bend', dirtBend.size, dirtBend.size, dirtBend.marks, dirtBend.cells),
@@ -1582,33 +1611,53 @@ const ITEMS: readonly CatalogItem[] = [
   flat('road', 'dirtroad', 'dirt-cross', 'Dirt cross', SMALL, SMALL, dirtJunction(true)),
   flat('road', 'dirtroad', 'dirt-end', 'Dirt end', 1, SMALL, dirtEnd(0.7)),
   flat('road', 'dirtroad', 'dirt-paved', 'Dirt to paved', 1, SMALL, dirtToPaved),
-  // Flooring: road links, where the two widths meet, and the bus bay
-  // a narrow road ending into the side of a wide one: the wide road runs along x, the narrow road
-  // leaves through +y; and the other way round, a wide road ending into a narrow one
-  flat('road', 'links', 'link-narrow-t', 'Medium into wide', NARROW, WIDE, junction(NARROW, WIDE, true)),
-  flat('road', 'links', 'link-wide-t', 'Wide into medium', WIDE, NARROW, junction(WIDE, NARROW, true)),
-  // a narrow road crossing a wide one: the wide road along x, the narrow one along y
-  flat('road', 'links', 'link-cross', 'Mixed crossroads', NARROW, WIDE, junction(NARROW, WIDE, false)),
+  // Medium roads' links to wide roads, in the Medium roads tab (#31b; their ids say narrow, from before
+  // the rename). A medium road ending into the side of a wide one: the wide road runs along x, the
+  // medium road leaves through +y; and the other way round, a wide road ending into a medium one
+  flat('road', 'narrow', 'link-narrow-t', 'Medium T wide', NARROW, WIDE, junction(NARROW, WIDE, true)),
+  flat('road', 'narrow', 'link-wide-t', 'Wide T medium', WIDE, NARROW, junction(WIDE, NARROW, true)),
+  // a medium road crossing a wide one: the wide road along x, the medium one along y
+  flat('road', 'narrow', 'link-cross', 'Medium crossing', NARROW, WIDE, junction(NARROW, WIDE, false)),
   // a straight piece where both sides taper in, from 5 across at x = 0 to 3 across at x = 3
-  flat('road', 'links', 'link-taper', 'Narrowing road', 3, WIDE, [
+  flat('road', 'narrow', 'link-taper', 'Wide to medium', 3, WIDE, [
     { pts: [[0, 0], [3, 1], [3, 4], [0, 5]], color: ASPHALT },
     { pts: [[0, EDGE[0]], [3, 1 + EDGE[0]], [3, 1 + EDGE[1]], [0, EDGE[1]]], color: ROAD_LINE },
     { pts: [[0, 5 - EDGE[1]], [3, 4 - EDGE[1]], [3, 4 - EDGE[0]], [0, 5 - EDGE[0]]], color: ROAD_LINE },
     ...[0, 1, 2].map((x) => rectMark(x + 0.25, 2.5 - LINE / 2, x + 0.75, 2.5 + LINE / 2, ROAD_LINE)),
   ]),
-  // a tight turn that narrows as it goes: in wide at x = 0, out narrow through y = 5 (a right turn);
+  // a tight turn that narrows as it goes: in wide at x = 0, out medium through y = 5 (a right turn);
   // the left turn is its mirror image, out through y = 0
-  flat('road', 'links', 'link-turn-right', 'Narrowing right', NARROW, WIDE, turnTransition.marks, turnTransition.cells),
-  flat('road', 'links', 'link-turn-left', 'Narrowing left', NARROW, WIDE, turnTransition.marks.map(mirrorY(WIDE)),
-    turnTransition.cells.map((c) => ({ x: c.x, y: WIDE - 1 - c.y }))),
-  // a bus bay, built in pieces beside a road (on the road's dashed side, the bay's y = 0): an opening
-  // that tapers out over 4 tiles, as many 1-tile middles as needed, and a closing that tapers back in
-  flat('road', 'links', 'bay-start', 'Bus bay opening', 4, 2, [
+  flat('road', 'narrow', 'link-turn-right', 'Right to medium', NARROW, WIDE, wideTurn.marks, wideTurn.cells),
+  flat('road', 'narrow', 'link-turn-left', 'Left to medium', NARROW, WIDE, wideTurn.marks.map(mirrorY(WIDE)),
+    wideTurn.cells.map((c) => ({ x: c.x, y: WIDE - 1 - c.y }))),
+  // Narrow roads' links, in the Narrow roads tab (#31b): a narrow road only tees into the side of a wide
+  // one (across the whole road, or its near side only); with medium roads it tees both ways, crosses,
+  // and narrows straight or round a turn
+  flat('road', 'small', 'small-t-wide', 'Narrow T wide', SMALL, WIDE, junction(SMALL, WIDE, true)),
+  // the same T joining only the near side of the wide road: its far lane line and the two solid lines of
+  // its middle row run straight through, so traffic turns in and out of the near side only
+  flat('road', 'small', 'small-t-wide-half', 'Narrow T 1 side', SMALL, WIDE, [
+    ...junction(SMALL, WIDE, true),
+    ...laneLines(WIDE).filter(({ at }) => at < 4).flatMap(({ at, dashed }) =>
+      [0, 1].map((x) => (dashed ? rectMark(x + 0.25, at - LINE / 2, x + 0.75, at + LINE / 2, ROAD_LINE) : rectMark(x, at - LINE / 2, x + 1, at + LINE / 2, ROAD_LINE)))),
+  ]),
+  flat('road', 'small', 'small-t-medium', 'Narrow T medium', SMALL, NARROW, junction(SMALL, NARROW, true)),
+  flat('road', 'small', 'medium-t-small', 'Medium T narrow', NARROW, SMALL, junction(NARROW, SMALL, true)),
+  flat('road', 'small', 'small-cross-medium', 'Narrow crossing', SMALL, NARROW, junction(SMALL, NARROW, false)),
+  flat('road', 'small', 'small-taper', 'Medium to narrow', 2, NARROW, narrowing),
+  flat('road', 'small', 'small-turn-right', 'Right to narrow', SMALL, NARROW, mediumTurn.marks, mediumTurn.cells),
+  flat('road', 'small', 'small-turn-left', 'Left to narrow', SMALL, NARROW, mediumTurn.marks.map(mirrorY(NARROW)),
+    mediumTurn.cells.map((c) => ({ x: c.x, y: NARROW - 1 - c.y }))),
+
+  // Flooring: bus bay, its own tab since #31b. Built in pieces beside a road (on the road's dashed side,
+  // the bay's y = 0): an opening that tapers out over 4 tiles, as many 1-tile middles as needed, and a
+  // closing that tapers back in. The Bus stop box (Markings) is painted in it
+  flat('road', 'busbay', 'bay-start', 'Bus bay opening', 4, 2, [
     { pts: [[0, 0], [4, 0], [4, 2]], color: ASPHALT },
     segMark(0.5, 0.04, 3.96, 1.78, LINE, ROAD_LINE),
   ], [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 2, y: 1 }, { x: 3, y: 1 }]),
-  { ...flat('road', 'links', 'bay-middle', 'Bus bay middle', 1, 2, [rectMark(0, 0, 1, 2, ASPHALT), rectMark(0, 1.74, 1, 1.82, ROAD_LINE)]), run: true },
-  flat('road', 'links', 'bay-end', 'Bus bay closing', 4, 2, [
+  { ...flat('road', 'busbay', 'bay-middle', 'Bus bay middle', 1, 2, [rectMark(0, 0, 1, 2, ASPHALT), rectMark(0, 1.74, 1, 1.82, ROAD_LINE)]), run: true },
+  flat('road', 'busbay', 'bay-end', 'Bus bay closing', 4, 2, [
     { pts: [[0, 0], [4, 0], [0, 2]], color: ASPHALT },
     segMark(0.04, 1.78, 3.5, 0.04, LINE, ROAD_LINE),
   ], [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }]),
@@ -1642,6 +1691,9 @@ const ITEMS: readonly CatalogItem[] = [
   ]),
   // a truck loading bay, open at +y: yellow side and back lines, a hatched keep-clear strip at the
   // dock end and an arrow pointing in, for backing up to the dock
+  // a bus stop box for a bus bay (#31c): a yellow outline 3 long inside the bay's lane, with BUS in
+  // block letters reading along it, their tops toward the bay's y = 0 side (the road)
+  flat('marking', 'markings', 'bus-box', 'Bus stop box', 3, 2, busBox),
   flat('marking', 'markings', 'loading-bay', 'Loading bay', 4, 8, [
     rectMark(0, 0, 0.1, 8, BAY_YELLOW),
     rectMark(3.9, 0, 4, 8, BAY_YELLOW),

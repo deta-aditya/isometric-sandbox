@@ -25,7 +25,7 @@ const drawn = (a: ReturnType<typeof piece>, roads: ReturnType<typeof piece>[]) =
 };
 
 // ===== On every straight, in every facing and lane row: the arrow lies inside its lane =====
-const STRAIGHTS = ['wide-straight', 'wide-dashed', 'wide-dashed2', 'narrow-straight', 'narrow-dashed', 'narrow-dashed2'];
+const STRAIGHTS = ['wide-straight', 'wide-dashed', 'wide-dashed2', 'narrow-straight', 'narrow-dashed', 'narrow-dashed2', 'small-straight', 'small-dashed', 'small-dashed2'];
 let checked = 0;
 for (const id of STRAIGHTS) {
   const cls = getObjectDef(id).lanes!;
@@ -55,7 +55,7 @@ for (const id of STRAIGHTS) {
     }
   }
 }
-ok(`on all six straights, every facing and lane row, arrows sit centered in their lane, clear of its lines (${checked} cases)`);
+ok(`on all nine straights, every facing and lane row, arrows sit centered in their lane, clear of its lines (${checked} cases)`);
 
 // the arrow points the way it faces: its head lies ahead of its middle along its facing
 for (const r of [0, 1, 2, 3] as const) {
@@ -79,7 +79,7 @@ for (const aid of ARROWS) {
 ok('off road, across a road, on a junction or a curve, an arrow keeps the off-road look in its row');
 
 // ===== Shapes: one head per paint; smaller than before =====
-for (const paint of ['wide', 'medium', 'off'] as const) {
+for (const paint of ['wide', 'medium', 'narrow', 'off'] as const) {
   const heads = KINDS.map((k) => {
     const marks = marksOf(getObjectDef(`arrow-${k}`), 0, paint);
     const tri = marks.find((m) => m.pts.length === 3)!;

@@ -2,6 +2,7 @@
 import { strict as assert } from 'node:assert';
 import { CATALOG, CATEGORIES, type Mark, getObjectDef, itemsIn, marksOf, occupiedCells } from '../src/catalog.ts';
 import { arrowLook } from '../src/arrows.ts';
+import { canPlaceObject } from '../src/world.ts';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
 const pt = (x: number, y: number) => ({ cell: { x: Math.floor(x), y: Math.floor(y) }, point: { x, y } });
@@ -13,39 +14,45 @@ const put = (id: string, x: number, y: number, r = 0): HistoryAction[] => [{ typ
 const ids = (h: History, id: string) => h.state.objects.filter((o) => o.defId === id);
 let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
-const NARROW_ROADS = ['small-straight', 'small-sharp', 'small-gentle', 'small-t', 'small-cross', 'small-end', 'small-t-medium', 'small-taper'];
+const NARROW_ROADS = ['small-straight', 'small-dashed', 'small-dashed2', 'small-sharp', 'small-gentle', 'small-t', 'small-cross', 'small-end',
+  'small-t-wide', 'small-t-wide-half', 'small-t-medium', 'medium-t-small', 'small-cross-medium', 'small-taper', 'small-turn-right', 'small-turn-left'];
 const DIRT_ROADS = ['dirt-straight', 'dirt-sharp', 'dirt-gentle', 'dirt-t', 'dirt-cross', 'dirt-end', 'dirt-paved'];
 const WHITE = 0xf1f5f9, ASPHALT = 0x44444c, TRACK = 0xa06f30, STRIP = 0x6b8f4a, DIRT = 0xb58139;
 
-// ===== Names and tabs =====
+// ===== Names and tabs (#31, regrouped in #31b) =====
 const flooring = CATEGORIES.find((c) => c.id === 'flooring')!;
 assert.deepEqual(flooring.groups.map((g) => g.name),
-  ['Floors', 'Paths', 'Wide roads', 'Medium roads', 'Narrow roads', 'Dirt roads', 'Road links', 'Markings', 'Courts', 'Water']);
+  ['Floors', 'Paths', 'Wide roads', 'Medium roads', 'Narrow roads', 'Dirt roads', 'Bus bay', 'Markings', 'Courts', 'Water']);
+// wide roads have no links; medium roads carry their links to wide, narrow roads theirs to medium and wide
+assert.deepEqual(itemsIn('roads').map((i) => i.name),
+  ['Straight road', '1 side dashed', '2 sides dashed', 'Sharp curve', 'Gentle curve', 'T-junction', 'Crossroads', 'Road end']);
 assert.deepEqual(itemsIn('narrow').map((i) => i.name),
-  ['Medium road', 'Medium, 1 dashed', 'Medium, 2 dashed', 'Medium bend', 'Medium curve', 'Medium T', 'Medium cross', 'Medium end']);
+  ['Medium road', 'Medium, 1 dashed', 'Medium, 2 dashed', 'Medium bend', 'Medium curve', 'Medium T', 'Medium cross', 'Medium end',
+    'Medium T wide', 'Wide T medium', 'Medium crossing', 'Wide to medium', 'Right to medium', 'Left to medium']);
 assert.deepEqual(itemsIn('small').map((i) => i.id), NARROW_ROADS);
 assert.deepEqual(itemsIn('small').map((i) => i.name),
-  ['Narrow road', 'Narrow bend', 'Narrow curve', 'Narrow T', 'Narrow cross', 'Narrow end', 'T into medium', 'Medium to narrow']);
+  ['Narrow road', 'Narrow, 1 dashed', 'Narrow, 2 dashed', 'Narrow bend', 'Narrow curve', 'Narrow T', 'Narrow cross', 'Narrow end',
+    'Narrow T wide', 'Narrow T 1 side', 'Narrow T medium', 'Medium T narrow', 'Narrow crossing', 'Medium to narrow', 'Right to narrow', 'Left to narrow']);
 assert.deepEqual(itemsIn('dirtroad').map((i) => i.id), DIRT_ROADS);
-assert.deepEqual(['link-narrow-t', 'link-wide-t', 'crosswalk-narrow'].map((id) => getObjectDef(id).name), ['Medium into wide', 'Wide into medium', 'Medium crosswalk']);
-// every road tab keeps a number key for each item
-for (const g of ['roads', 'narrow', 'small', 'dirtroad', 'links'] as const) assert.ok(itemsIn(g).length <= 9, g);
+assert.deepEqual(itemsIn('busbay').map((i) => i.name), ['Bus bay opening', 'Bus bay middle', 'Bus bay closing']);
+assert.ok(itemsIn('markings').some((i) => i.id === 'bus-box'));
+assert.equal(getObjectDef('crosswalk-narrow').name, 'Medium crosswalk');
 // no two items share a name
 const names = CATALOG.filter((i) => !i.id.includes(':')).map((i) => i.name); // spanning pieces share their item's name
 assert.equal(new Set(names).size, names.length);
-ok('3-wide roads are Medium roads (ids kept); new Narrow roads and Dirt roads tabs, 9 items or fewer each');
+ok('Wide, Medium, Narrow and Dirt roads tabs (links with the narrower road), a Bus bay tab, the Bus stop box in Markings');
 
 // ===== Shapes =====
-for (const id of [...NARROW_ROADS, ...DIRT_ROADS]) {
+for (const id of [...NARROW_ROADS, ...DIRT_ROADS, 'bus-box']) {
   const def = getObjectDef(id);
-  assert.equal(def.layer, 'road', id);
+  assert.equal(def.layer, id === 'bus-box' ? 'marking' : 'road', id);
   for (const r of [0, 1, 2, 3] as const) {
     const [W, H] = r % 2 ? [def.h, def.w] : [def.w, def.h];
     marksOf(def, r).forEach((m) => m.pts.forEach(([x, y]) => assert.ok(x >= -1e-9 && y >= -1e-9 && x <= W + 1e-9 && y <= H + 1e-9, `${id} r${r}`)));
   }
 }
 assert.deepEqual([getObjectDef('small-straight').h, getObjectDef('dirt-straight').h], [2, 2]);
-ok('every narrow and dirt road piece lies in its footprint in every facing, 2 wide');
+ok('every narrow and dirt road piece, link and the Bus stop box lies in its footprint in every facing');
 
 // a point inside a mark (even-odd), and the marks of a color covering a point
 const inside = (m: Mark, x: number, y: number) => {
@@ -73,6 +80,27 @@ for (const y of [0.22, 1.78]) {
 for (const y of [0.22, 2.78]) assert.equal(colorAt('small-taper', 0.02, y), WHITE);
 for (const y of [0.22, 2.78]) assert.equal(colorAt('narrow-straight', 0.5, y), WHITE);
 ok('narrow roads have edge lines only, and Dirt to paved and Medium to narrow meet them line to line');
+
+// dashed narrow straights dash one or both edge lines, like the other widths
+assert.equal(colorAt('small-dashed', 0.1, 1.78), ASPHALT, 'the +y line is dashed');
+assert.equal(colorAt('small-dashed', 0.5, 1.78), WHITE);
+assert.equal(colorAt('small-dashed', 0.1, 0.22), WHITE, 'the other side stays solid');
+assert.equal(colorAt('small-dashed2', 0.1, 0.22), ASPHALT);
+// a narrow T into the side of a wide road opens it whole; the one-side T keeps the far lane line and the
+// middle row's two solid lines running through, and only the near lane line stops
+for (const y of [1, 2, 3, 4]) assert.equal(colorAt('small-t-wide', 1, y), ASPHALT, `full T ${y}`);
+assert.equal(colorAt('small-t-wide-half', 0.5, 1), WHITE);
+assert.equal(colorAt('small-t-wide-half', 1.5, 1), WHITE);
+for (const x of [0.02, 1, 1.98]) for (const y of [2, 3]) assert.equal(colorAt('small-t-wide-half', x, y), WHITE, `one side ${x} ${y}`);
+assert.equal(colorAt('small-t-wide-half', 0.5, 4), ASPHALT);
+// the turns down to narrow come out with a narrow road's edge lines and no center line
+for (const id of ['small-turn-right']) {
+  for (const x of [0.22, 1.78]) assert.equal(colorAt(id, x, 2.98), WHITE, `${id} exit ${x}`);
+  assert.equal(colorAt(id, 1, 2.98), ASPHALT, `${id} exit middle`);
+  for (const y of [0.22, 2.78]) assert.equal(colorAt(id, 0.02, y), WHITE, `${id} entry ${y}`);
+}
+for (const x of [0.22, 1.78]) assert.equal(colorAt('small-turn-left', x, 0.02), WHITE, `left exit ${x}`);
+ok('dashed narrow roads, the full and one-side Narrow T wide, and turns down to narrow carry the right lines');
 
 // dirt roads: tracks and grassy strip line up across every open side of every dirt piece
 const across = { track: [0.5, 1.5], strip: [1] };
@@ -150,7 +178,38 @@ for (const id of ['small-gentle', 'dirt-gentle']) {
   const cs = cellsOf(id);
   assert.ok(has(cs, 0, 0) && has(cs, 4, 4) && !has(cs, 0, 4), id);
 }
-// arrows on narrow and dirt roads keep the off-road look in their row
-const road = { defId: 'small-straight', rotation: 0 as const, x: 10, y: 10, w: 1, h: 2 };
-assert.deepEqual(arrowLook({ defId: 'arrow-straight', rotation: 0, x: 10, y: 10, w: 3, h: 1 }, [road]), { paint: 'off', shift: 0 });
-ok('narrow and dirt curves stand only on their road; arrows on them keep the off-road look');
+// arrows on a narrow road slide to the middle of their lane at the wide size; on dirt they would keep
+// the off-road look (they cannot be placed there, see below)
+const narrowRun = [0, 1, 2].map((k) => ({ defId: 'small-straight', rotation: 0 as const, x: 10 + k, y: 10, w: 1, h: 2 }));
+const look0 = arrowLook({ defId: 'arrow-straight', rotation: 0, x: 10, y: 10, w: 3, h: 1 }, narrowRun);
+const look1 = arrowLook({ defId: 'arrow-straight', rotation: 0, x: 10, y: 11, w: 3, h: 1 }, narrowRun);
+assert.equal(look0.paint, 'narrow');
+assert.ok(Math.abs(look0.shift - 0.11) < 1e-9 && Math.abs(look1.shift + 0.11) < 1e-9, `${look0.shift} ${look1.shift}`);
+const dirtRun = [0, 1, 2].map((k) => ({ defId: 'dirt-straight', rotation: 0 as const, x: 10 + k, y: 10, w: 1, h: 2 }));
+assert.deepEqual(arrowLook({ defId: 'arrow-straight', rotation: 0, x: 10, y: 10, w: 3, h: 1 }, dirtRun), { paint: 'off', shift: 0 });
+ok('narrow and dirt curves stand only on their road; arrows sit mid-lane on narrow roads');
+
+// ===== Arrows are blocked on dirt roads; they go on narrow ones =====
+let a = run(initialHistory, { type: 'select', id: 'dirt-straight' }, ...drag([10.5, 20.9], [20.5, 20.9]),
+  { type: 'select', id: 'small-straight' }, ...drag([10.5, 30.9], [20.5, 30.9]));
+assert.ok(ids(a, 'dirt-straight').every((o) => o.y === 20) && ids(a, 'small-straight').every((o) => o.y === 30));
+const before = a.state.objects.length;
+a = run(a, ...put('arrow-straight', 14.5, 20.5), ...put('arrow-left', 14.5, 21.5), ...put('arrow-right', 21.5, 20.5));
+assert.equal(a.state.objects.length, before, 'no arrow on dirt, not even half on it');
+a = run(a, ...put('arrow-straight', 14.5, 30.5), ...put('arrow-straight', 14.5, 31.5, 2));
+assert.equal(ids(a, 'arrow-straight').length, 2, 'both lanes of a narrow road take arrows');
+// the rule sits in the fit check every placement uses (build, moving, paste, blueprints)
+assert.equal(canPlaceObject(a.state, { defId: 'arrow-right', rotation: 0, x: 15, y: 21, w: 3, h: 1 }), false);
+assert.equal(canPlaceObject(a.state, { defId: 'arrow-right', rotation: 0, x: 15, y: 23, w: 3, h: 1 }), true, 'off the dirt it fits');
+ok('arrows cannot be placed on any dirt road piece, and go in both lanes of a narrow road');
+
+// ===== The Bus stop box fits inside a bus bay's lane =====
+const busMarks = getObjectDef('bus-box').marks!.flatMap((m) => m.pts);
+assert.ok(busMarks.every(([x, y]) => x >= 0.1 && x <= 2.9 && y >= 0.2 && y <= 1.6), 'inside the bay lane (0 to 1.74 across)');
+assert.ok(getObjectDef('bus-box').marks!.every((m) => m.color === 0xfacc15));
+let bay = run(initialHistory, { type: 'select', id: 'bay-middle' }, ...drag([10.5, 10.9], [16.5, 10.9]), ...put('bus-box', 13.5, 10.9));
+assert.equal(ids(bay, 'bus-box').length, 1);
+assert.deepEqual([ids(bay, 'bus-box')[0]!.y, ids(bay, 'bay-middle')[0]!.y], [10, 10]);
+bay = run(bay, { type: 'undo' } as HistoryAction);
+assert.equal(ids(bay, 'bus-box').length, 0);
+ok('the Bus stop box is yellow paint that sits inside the bay lane, placed on bay middles');
