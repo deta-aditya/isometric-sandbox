@@ -14,9 +14,9 @@ const put = (id: string, x: number, y: number, r = 0): HistoryAction[] => [{ typ
 const ids = (h: History, id: string) => h.state.objects.filter((o) => o.defId === id);
 let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
-const NARROW_ROADS = ['small-straight', 'small-dashed', 'small-dashed2', 'small-sharp', 'small-gentle', 'small-t', 'small-cross', 'small-end',
+const NARROW_ROADS = ['small-straight', 'small-dashed', 'small-dashed2', 'small-corner', 'small-sharp', 'small-gentle', 'small-t', 'small-cross', 'small-end',
   'small-t-wide', 'small-t-wide-half', 'small-t-medium', 'medium-t-small', 'small-cross-medium', 'small-taper', 'small-turn-right', 'small-turn-left'];
-const DIRT_ROADS = ['dirt-straight', 'dirt-sharp', 'dirt-gentle', 'dirt-t', 'dirt-cross', 'dirt-end', 'dirt-paved'];
+const DIRT_ROADS = ['dirt-straight', 'dirt-corner', 'dirt-sharp', 'dirt-gentle', 'dirt-t', 'dirt-cross', 'dirt-end', 'dirt-paved'];
 const WHITE = 0xf1f5f9, ASPHALT = 0x44444c, TRACK = 0xa06f30, STRIP = 0x6b8f4a, DIRT = 0xb58139;
 
 // ===== Names and tabs (#31, regrouped in #31b) =====
@@ -31,7 +31,7 @@ assert.deepEqual(itemsIn('narrow').map((i) => i.name),
     'Medium T wide', 'Wide T medium', 'Medium crossing', 'Wide to medium', 'Right to medium', 'Left to medium']);
 assert.deepEqual(itemsIn('small').map((i) => i.id), NARROW_ROADS);
 assert.deepEqual(itemsIn('small').map((i) => i.name),
-  ['Narrow road', 'Narrow, 1 dashed', 'Narrow, 2 dashed', 'Narrow bend', 'Narrow curve', 'Narrow T', 'Narrow cross', 'Narrow end',
+  ['Narrow road', 'Narrow, 1 dashed', 'Narrow, 2 dashed', 'Narrow corner', 'Narrow bend', 'Narrow curve', 'Narrow T', 'Narrow cross', 'Narrow end',
     'Narrow T wide', 'Narrow T 1 side', 'Narrow T medium', 'Medium T narrow', 'Narrow crossing', 'Medium to narrow', 'Right to narrow', 'Left to narrow']);
 assert.deepEqual(itemsIn('dirtroad').map((i) => i.id), DIRT_ROADS);
 assert.deepEqual(itemsIn('busbay').map((i) => i.name), ['Bus bay opening', 'Bus bay middle', 'Bus bay closing']);
@@ -213,3 +213,22 @@ assert.deepEqual([ids(bay, 'bus-box')[0]!.y, ids(bay, 'bay-middle')[0]!.y], [10,
 bay = run(bay, { type: 'undo' } as HistoryAction);
 assert.equal(ids(bay, 'bus-box').length, 0);
 ok('the Bus stop box is yellow paint that sits inside the bay lane, placed on bay middles');
+
+// ===== Corners (#31c): the tightest turns, 2 by 2 =====
+for (const id of ['small-corner', 'dirt-corner']) {
+  const d = getObjectDef(id);
+  assert.deepEqual([d.w, d.h], [2, 2], id);
+  assert.equal(occupiedCells({ defId: id, rotation: 0, x: 0, y: 0, w: 2, h: 2 }).length, 4, id);
+}
+// it enters at x = 0 across the full width and leaves through y = 2, with a straight's lines at both
+for (const y of [0.22, 1.78]) assert.equal(colorAt('small-corner', 0.01, y), WHITE, `narrow corner entry ${y}`);
+for (const x of [0.22, 1.78]) assert.equal(colorAt('small-corner', x, 1.99), WHITE, `narrow corner exit ${x}`);
+assert.equal(colorAt('small-corner', 1, 1.99), ASPHALT);
+for (const y of [0.5, 1.5]) assert.equal(colorAt('dirt-corner', 0.01, y), TRACK, `dirt corner entry track ${y}`);
+for (const x of [0.5, 1.5]) assert.equal(colorAt('dirt-corner', x, 1.99), TRACK, `dirt corner exit track ${x}`);
+assert.equal(colorAt('dirt-corner', 0.01, 1), STRIP);
+assert.equal(colorAt('dirt-corner', 1, 1.99), STRIP);
+// the outside rounds off: the far corner of the square is grass
+assert.equal(colorAt('small-corner', 1.95, 0.05), undefined);
+assert.equal(colorAt('dirt-corner', 1.95, 0.05), undefined);
+ok('Narrow corner and Dirt corner turn on 2 by 2, meeting straights line to line and track to track');

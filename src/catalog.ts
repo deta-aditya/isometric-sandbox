@@ -663,8 +663,11 @@ const narrowing: Mark[] = [
   { pts: [[0, 3 - EDGE[1]], [2, 2 - EDGE[1]], [2, 2 - EDGE[0]], [0, 3 - EDGE[0]]], color: ROAD_LINE },
   rectMark(0.25, 1.5 - LINE / 2, 0.75, 1.5 + LINE / 2, ROAD_LINE),
 ];
+// the tightest turns, on their own 2 by 2 (#31c): inner radius 0, so the inside meets in a point
+const smallCorner = curve(SMALL, 0);
 const smallBend = curve(SMALL, 1);
 const smallCurve = curve(SMALL, 3);
+const dirtCorner = dirtCurve(0);
 const dirtBend = dirtCurve(1);
 const dirtGentle = dirtCurve(3);
 // A bus stop box (#31c): a yellow outline inside a bus bay's lane, BUS in block letters reading along it
@@ -1598,6 +1601,7 @@ const ITEMS: readonly CatalogItem[] = [
   { ...flat('road', 'small', 'small-straight', 'Narrow road', 1, SMALL, straight(SMALL)), run: true, lanes: 'narrow' },
   { ...flat('road', 'small', 'small-dashed', 'Narrow, 1 dashed', 1, SMALL, straight(SMALL, 1)), run: true, lanes: 'narrow' },
   { ...flat('road', 'small', 'small-dashed2', 'Narrow, 2 dashed', 1, SMALL, straight(SMALL, 2)), run: true, lanes: 'narrow' },
+  flat('road', 'small', 'small-corner', 'Narrow corner', smallCorner.size, smallCorner.size, smallCorner.marks, smallCorner.cells),
   flat('road', 'small', 'small-sharp', 'Narrow bend', smallBend.size, smallBend.size, smallBend.marks, smallBend.cells),
   flat('road', 'small', 'small-gentle', 'Narrow curve', smallCurve.size, smallCurve.size, smallCurve.marks, smallCurve.cells),
   flat('road', 'small', 'small-t', 'Narrow T', SMALL, SMALL, junction(SMALL, SMALL, true)),
@@ -1605,6 +1609,7 @@ const ITEMS: readonly CatalogItem[] = [
   flat('road', 'small', 'small-end', 'Narrow end', 1, SMALL, roadEnd(SMALL, 0.7)),
   // Flooring: dirt roads (2 across), joined to paved narrow roads by Dirt to paved (#31)
   { ...flat('road', 'dirtroad', 'dirt-straight', 'Dirt road', 1, SMALL, dirtStraight), run: true },
+  flat('road', 'dirtroad', 'dirt-corner', 'Dirt corner', dirtCorner.size, dirtCorner.size, dirtCorner.marks, dirtCorner.cells),
   flat('road', 'dirtroad', 'dirt-sharp', 'Dirt bend', dirtBend.size, dirtBend.size, dirtBend.marks, dirtBend.cells),
   flat('road', 'dirtroad', 'dirt-gentle', 'Dirt curve', dirtGentle.size, dirtGentle.size, dirtGentle.marks, dirtGentle.cells),
   flat('road', 'dirtroad', 'dirt-t', 'Dirt T', SMALL, SMALL, dirtJunction(false)),
