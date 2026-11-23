@@ -79,7 +79,7 @@ for (const aid of ARROWS) {
 ok('off road, across a road, on a junction or a curve, an arrow keeps the off-road look in its row');
 
 // ===== Shapes: one head per paint; smaller than before =====
-for (const paint of ['wide', 'narrow', 'off'] as const) {
+for (const paint of ['wide', 'medium', 'off'] as const) {
   const heads = KINDS.map((k) => {
     const marks = marksOf(getObjectDef(`arrow-${k}`), 0, paint);
     const tri = marks.find((m) => m.pts.length === 3)!;
@@ -95,7 +95,7 @@ for (const paint of ['wide', 'narrow', 'off'] as const) {
 }
 ok('all three arrows share one head per paint, and fit 1.7 by 0.56 at most');
 
-// ===== Placing on a narrow road's middle row goes into the lane the pointer is in =====
+// ===== Placing on a medium road's middle row goes into the lane the pointer is in =====
 const narrowRoad = run(initialHistory, { type: 'select', id: 'narrow-straight' }, { type: 'hover', ...pt(10.5, 11.5) },
   { type: 'press', ...pt(10.5, 11.5) }, { type: 'hover', ...pt(16.5, 11.5) }, { type: 'release' });
 const rowOf = (h: History) => h.state.objects.find((o) => o.defId === 'arrow-straight')!.y;
@@ -112,4 +112,4 @@ assert.equal(colOf(run(narrowY, { type: 'select', id: 'arrow-left' }, ...click(1
 const wideRoad = run(initialHistory, { type: 'select', id: 'wide-straight' }, { type: 'hover', ...pt(10.5, 12.5) },
   { type: 'press', ...pt(10.5, 12.5) }, { type: 'hover', ...pt(16.5, 12.5) }, { type: 'release' });
 assert.equal(rowOf(run(wideRoad, { type: 'select', id: 'arrow-straight' }, ...click(13.5, 12.3))), 12);
-ok("an arrow placed on a narrow road's middle row goes into the lane on the pointer's side");
+ok("an arrow placed on a medium road's middle row goes into the lane on the pointer's side");

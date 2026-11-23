@@ -479,8 +479,10 @@ export const objectCandidate = (s: State, cell: Cell): ObjectPlacement | null =>
 };
 
 // A straight road piece (one tile long, 3 or 5 across) the pointer is on, if any
+// A straight road under a cell (any width from the 2-wide narrow and dirt roads up; the bus bay middle,
+// also laid by dragging, is not a road to line up with)
 const straightAt = (s: State, c: Cell): ObjectPlacement | undefined =>
-  s.objects.find((o) => layerOf(o.defId) === 'road' && isRun(o.defId) && Math.min(o.w, o.h) === 1 && Math.max(o.w, o.h) >= 3 && onCell(o, c));
+  s.objects.find((o) => layerOf(o.defId) === 'road' && isRun(o.defId) && o.defId !== 'bay-middle' && Math.min(o.w, o.h) === 1 && Math.max(o.w, o.h) >= 2 && onCell(o, c));
 
 // A junction, link or road end held over a straight road slides across to line up with it: centered
 // on the road's width, so a piece as wide as the road meets its edges exactly, and a narrowing piece's

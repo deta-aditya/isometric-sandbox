@@ -31,6 +31,8 @@ export type GroupId =
   | 'roads'
   | 'narrow'
   | 'links'
+  | 'small'
+  | 'dirtroad'
   | 'markings'
   | 'courts'
   | 'water'
@@ -87,7 +89,9 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'floors', name: 'Floors' },
       { id: 'paths', name: 'Paths' },
       { id: 'roads', name: 'Wide roads' },
-      { id: 'narrow', name: 'Narrow roads' },
+      { id: 'narrow', name: 'Medium roads' },
+      { id: 'small', name: 'Narrow roads' },
+      { id: 'dirtroad', name: 'Dirt roads' },
       { id: 'links', name: 'Road links' },
       { id: 'markings', name: 'Markings' },
       { id: 'courts', name: 'Courts' },
@@ -177,7 +181,7 @@ export type ObjectDef = Base &
     lanes?: RoadClass;
   }>;
 export type ArrowKind = 'straight' | 'left' | 'right';
-export type RoadClass = 'wide' | 'narrow';
+export type RoadClass = 'wide' | 'medium';
 export type ArrowPaint = RoadClass | 'off';
 // A tile with a bank color is water: it joins up with neighboring water and draws banks where it doesn't
 // stripe: a second color for every other tile, in rows that keep their direction in the world as the
@@ -375,7 +379,8 @@ const BAY_YELLOW = 0xfacc15;
 const LINE = 0.08; // line width, in tiles
 const EDGE = [0.18, 0.26] as const; // where an edge line lies, in from the road's side
 const WIDE = 5;
-const NARROW = 3;
+const NARROW = 3; // medium roads (named narrow before #31, so their ids still say narrow)
+const SMALL = 2; // narrow roads and dirt roads (#31)
 
 const rectMark = (x0: number, y0: number, x1: number, y1: number, color: number, alpha?: number): Mark =>
   ({ pts: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], color, ...(alpha !== undefined ? { alpha } : {}) });
@@ -407,7 +412,7 @@ const cellsWhere = (w: number, h: number, inside: (x: number, y: number) => bool
 // between two solid lines (where a median goes)
 type LaneLine = Readonly<{ at: number; dashed: boolean }>;
 const laneLines = (width: number): readonly LaneLine[] =>
-  width === WIDE
+  width === SMALL ? [] : width === WIDE
     ? [{ at: 1, dashed: true }, { at: 2, dashed: false }, { at: 3, dashed: false }, { at: 4, dashed: true }]
     : [{ at: width / 2, dashed: true }];
 
@@ -427,7 +432,7 @@ export const laneSpans = (cls: RoadClass): readonly (readonly [number, number, n
 // arrow, turns included, fits in it), shaft thickness, and the head's length and width
 const ARROW_SIZE: Record<ArrowPaint, Readonly<{ len: number; across: number; shaft: number; headLen: number; headW: number }>> = {
   wide: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
-  narrow: { len: 1.7, across: 0.56, shaft: 0.09, headLen: 0.3, headW: 0.28 },
+  medium: { len: 1.7, across: 0.56, shaft: 0.09, headLen: 0.3, headW: 0.28 },
   off: { len: 1.5, across: 0.46, shaft: 0.08, headLen: 0.26, headW: 0.24 },
 };
 // A thick line along a path of points, as one polygon (left side out, right side back)
@@ -577,6 +582,84 @@ const roadEnd = (width: number, r: number): Mark[] => {
     rectMark(0, width - EDGE[1], 1 - r, width - EDGE[0], ROAD_LINE),
   ];
 };
+
+// ===== Narrow roads and dirt roads (#31), both 2 across =====
+// Narrow roads are paved with an edge line on each side and no center line (see laneLines), so they come
+// from the paved helpers above. Dirt roads are packed ochre earth, picked to sit apart from the Dirt path
+// tile and the Dirt terrain, worn into two wheel tracks with a grassy strip between them.
+const DIRT = 0xb58139;
+const TRACK = 0xa06f30;
+const STRIP = 0x6b8f4a;
+// the worn parts of a dirt road across it, from its y = 0 side: two wheel tracks and the grassy middle
+const DIRT_BANDS: readonly (readonly [number, number, number])[] = [[0.34, 0.66, TRACK], [1.34, 1.66, TRACK], [0.88, 1.12, STRIP]];
+const dirtStraight: Mark[] = [rectMark(0, 0, 1, SMALL, DIRT), ...DIRT_BANDS.map(([a, b, c]) => rectMark(0, a, 1, b, c))];
+// a dirt curve like `curve`, its tracks and strip following round
+const dirtCurve = (inner: number) => {
+  const size = inner + SMALL;
+  const [a0, a1] = [-Math.PI / 2, 0];
+  const marks = [sector(0, size, inner, size, a0, a1, DIRT), ...DIRT_BANDS.map(([a, b, c]) => sector(0, size, size - b, size - a, a0, a1, c))];
+  const inside = (x: number, y: number) => {
+    const r = Math.hypot(x, y - size);
+    return x >= 0 && y <= size && r > inner && r < size;
+  };
+  return { marks, cells: cellsWhere(size, size, inside), size };
+};
+// the end of a dirt road, rounded like `roadEnd`, its tracks and strip stopping short of the round
+const dirtEnd = (r: number): Mark[] => {
+  const a = Math.PI / 2;
+  return [
+    { pts: [[0, 0], ...arcPoints(1 - r, r, r, -a, 0), ...arcPoints(1 - r, SMALL - r, r, 0, a), [0, SMALL]], color: DIRT },
+    ...DIRT_BANDS.map(([y0, y1, c]) => rectMark(0, y0, 0.45, y1, c)),
+  ];
+};
+// dirt meeting a paved narrow road end to end: earth with its tracks from x = 0, a ragged edge, then
+// asphalt with its edge lines to x = 1
+const ragged: MarkPoint[] = [[0.62, 0], [0.5, 0.18], [0.6, 0.4], [0.46, 0.62], [0.58, 0.86], [0.44, 1.08], [0.6, 1.3], [0.48, 1.52], [0.58, 1.76], [0.5, 2]];
+const dirtToPaved: Mark[] = [
+  rectMark(0, 0, 1, SMALL, DIRT),
+  ...DIRT_BANDS.map(([a, b, c]) => rectMark(0, a, 0.5, b, c)),
+  { pts: [[1, 0], ...ragged, [1, SMALL]], color: ASPHALT },
+  rectMark(0.66, EDGE[0], 1, EDGE[1], ROAD_LINE),
+  rectMark(0.66, SMALL - EDGE[1], 1, SMALL - EDGE[0], ROAD_LINE),
+];
+// A dirt junction, a T leaving through +y or a cross. At each open corner the near tracks (radius 0.5)
+// and the far ones (radius 1.5) curve from one road into the next, as turning wheels wear them; a T's
+// closed side keeps its far track straight through. Grassy strips end in a round tip just inside.
+const dirtJunction = (cross: boolean): Mark[] => {
+  const [a, b] = [0.34, 0.66];
+  const q = Math.PI / 2;
+  const corners: readonly (readonly [number, number, number])[] = cross
+    ? [[0, 0, 0], [SMALL, 0, q], [SMALL, SMALL, 2 * q], [0, SMALL, 3 * q]]
+    : [[SMALL, SMALL, 2 * q], [0, SMALL, 3 * q]];
+  const arcs = corners.flatMap(([cx, cy, a0]) => [sector(cx, cy, a, b, a0, a0 + q, TRACK), sector(cx, cy, 1 + a, 1 + b, a0, a0 + q, TRACK)]);
+  const tips: Record<'w' | 'e' | 's' | 'n', readonly [number, number, number, number, number, number, number]> = {
+    w: [0, 0.88, 0.25, 1.12, 0.25, 1, -q],
+    e: [1.75, 0.88, 2, 1.12, 1.75, 1, q],
+    s: [0.88, 1.75, 1.12, 2, 1, 1.75, 2 * q],
+    n: [0.88, 0, 1.12, 0.25, 1, 0.25, 0],
+  };
+  const tip = ([x0, y0, x1, y1, cx, cy, a0]: (typeof tips)['w']): Mark[] =>
+    [rectMark(x0, y0, x1, y1, STRIP), sector(cx, cy, 0, 0.12, a0, a0 + Math.PI, STRIP)];
+  return [
+    rectMark(0, 0, SMALL, SMALL, DIRT),
+    ...(cross ? [] : [rectMark(0, a, SMALL, b, TRACK)]),
+    ...arcs,
+    ...tip(tips.w), ...tip(tips.e), ...tip(tips.s), ...(cross ? tip(tips.n) : []),
+  ];
+};
+// a medium road narrowing to a narrow one over 2 tiles: its y = 0 side runs straight, so the narrow road
+// stays on whole tiles, and the other draws in from 3 to 2; edge lines follow both, the center line ends
+const narrowing: Mark[] = [
+  { pts: [[0, 0], [2, 0], [2, 2], [0, 3]], color: ASPHALT },
+  rectMark(0, EDGE[0], 2, EDGE[1], ROAD_LINE),
+  // the drawn-in side's edge line, cut square at both ends so it meets the straight lines either side
+  { pts: [[0, 3 - EDGE[1]], [2, 2 - EDGE[1]], [2, 2 - EDGE[0]], [0, 3 - EDGE[0]]], color: ROAD_LINE },
+  rectMark(0.25, 1.5 - LINE / 2, 0.75, 1.5 + LINE / 2, ROAD_LINE),
+];
+const smallBend = curve(SMALL, 1);
+const smallCurve = curve(SMALL, 3);
+const dirtBend = dirtCurve(1);
+const dirtGentle = dirtCurve(3);
 const wideSharp = curve(WIDE, 1);
 const wideGentle = curve(WIDE, 4);
 const narrowSharp = curve(NARROW, 1);
@@ -1471,21 +1554,39 @@ const ITEMS: readonly CatalogItem[] = [
   flat('road', 'roads', 'wide-cross', 'Crossroads', WIDE, WIDE, junction(WIDE, WIDE, false)),
   flat('road', 'roads', 'wide-end', 'Road end', 1, WIDE, roadEnd(WIDE, 0.8)),
 
-  // Flooring: narrow roads (3 across)
-  { ...flat('road', 'narrow', 'narrow-straight', 'Narrow road', 1, NARROW, straight(NARROW)), run: true, lanes: 'narrow' },
-  { ...flat('road', 'narrow', 'narrow-dashed', 'Narrow, 1 dashed', 1, NARROW, straight(NARROW, 1)), run: true, lanes: 'narrow' },
-  { ...flat('road', 'narrow', 'narrow-dashed2', 'Narrow, 2 dashed', 1, NARROW, straight(NARROW, 2)), run: true, lanes: 'narrow' },
-  flat('road', 'narrow', 'narrow-sharp', 'Narrow bend', narrowSharp.size, narrowSharp.size, narrowSharp.marks, narrowSharp.cells),
-  flat('road', 'narrow', 'narrow-gentle', 'Narrow curve', narrowGentle.size, narrowGentle.size, narrowGentle.marks, narrowGentle.cells),
-  flat('road', 'narrow', 'narrow-t', 'Narrow T', NARROW, NARROW, junction(NARROW, NARROW, true)),
-  flat('road', 'narrow', 'narrow-cross', 'Narrow cross', NARROW, NARROW, junction(NARROW, NARROW, false)),
-  flat('road', 'narrow', 'narrow-end', 'Narrow end', 1, NARROW, roadEnd(NARROW, 0.6)),
+  // Flooring: medium roads (3 across; named narrow before #31, so their ids still say narrow)
+  { ...flat('road', 'narrow', 'narrow-straight', 'Medium road', 1, NARROW, straight(NARROW)), run: true, lanes: 'medium' },
+  { ...flat('road', 'narrow', 'narrow-dashed', 'Medium, 1 dashed', 1, NARROW, straight(NARROW, 1)), run: true, lanes: 'medium' },
+  { ...flat('road', 'narrow', 'narrow-dashed2', 'Medium, 2 dashed', 1, NARROW, straight(NARROW, 2)), run: true, lanes: 'medium' },
+  flat('road', 'narrow', 'narrow-sharp', 'Medium bend', narrowSharp.size, narrowSharp.size, narrowSharp.marks, narrowSharp.cells),
+  flat('road', 'narrow', 'narrow-gentle', 'Medium curve', narrowGentle.size, narrowGentle.size, narrowGentle.marks, narrowGentle.cells),
+  flat('road', 'narrow', 'narrow-t', 'Medium T', NARROW, NARROW, junction(NARROW, NARROW, true)),
+  flat('road', 'narrow', 'narrow-cross', 'Medium cross', NARROW, NARROW, junction(NARROW, NARROW, false)),
+  flat('road', 'narrow', 'narrow-end', 'Medium end', 1, NARROW, roadEnd(NARROW, 0.6)),
 
+
+  // Flooring: narrow roads (2 across, edge lines only) and their links to medium roads (#31)
+  { ...flat('road', 'small', 'small-straight', 'Narrow road', 1, SMALL, straight(SMALL)), run: true },
+  flat('road', 'small', 'small-sharp', 'Narrow bend', smallBend.size, smallBend.size, smallBend.marks, smallBend.cells),
+  flat('road', 'small', 'small-gentle', 'Narrow curve', smallCurve.size, smallCurve.size, smallCurve.marks, smallCurve.cells),
+  flat('road', 'small', 'small-t', 'Narrow T', SMALL, SMALL, junction(SMALL, SMALL, true)),
+  flat('road', 'small', 'small-cross', 'Narrow cross', SMALL, SMALL, junction(SMALL, SMALL, false)),
+  flat('road', 'small', 'small-end', 'Narrow end', 1, SMALL, roadEnd(SMALL, 0.7)),
+  flat('road', 'small', 'small-t-medium', 'T into medium', SMALL, NARROW, junction(SMALL, NARROW, true)),
+  flat('road', 'small', 'small-taper', 'Medium to narrow', 2, NARROW, narrowing),
+  // Flooring: dirt roads (2 across), joined to paved narrow roads by Dirt to paved (#31)
+  { ...flat('road', 'dirtroad', 'dirt-straight', 'Dirt road', 1, SMALL, dirtStraight), run: true },
+  flat('road', 'dirtroad', 'dirt-sharp', 'Dirt bend', dirtBend.size, dirtBend.size, dirtBend.marks, dirtBend.cells),
+  flat('road', 'dirtroad', 'dirt-gentle', 'Dirt curve', dirtGentle.size, dirtGentle.size, dirtGentle.marks, dirtGentle.cells),
+  flat('road', 'dirtroad', 'dirt-t', 'Dirt T', SMALL, SMALL, dirtJunction(false)),
+  flat('road', 'dirtroad', 'dirt-cross', 'Dirt cross', SMALL, SMALL, dirtJunction(true)),
+  flat('road', 'dirtroad', 'dirt-end', 'Dirt end', 1, SMALL, dirtEnd(0.7)),
+  flat('road', 'dirtroad', 'dirt-paved', 'Dirt to paved', 1, SMALL, dirtToPaved),
   // Flooring: road links, where the two widths meet, and the bus bay
   // a narrow road ending into the side of a wide one: the wide road runs along x, the narrow road
   // leaves through +y; and the other way round, a wide road ending into a narrow one
-  flat('road', 'links', 'link-narrow-t', 'T into wide', NARROW, WIDE, junction(NARROW, WIDE, true)),
-  flat('road', 'links', 'link-wide-t', 'T into narrow', WIDE, NARROW, junction(WIDE, NARROW, true)),
+  flat('road', 'links', 'link-narrow-t', 'Medium into wide', NARROW, WIDE, junction(NARROW, WIDE, true)),
+  flat('road', 'links', 'link-wide-t', 'Wide into medium', WIDE, NARROW, junction(WIDE, NARROW, true)),
   // a narrow road crossing a wide one: the wide road along x, the narrow one along y
   flat('road', 'links', 'link-cross', 'Mixed crossroads', NARROW, WIDE, junction(NARROW, WIDE, false)),
   // a straight piece where both sides taper in, from 5 across at x = 0 to 3 across at x = 3
@@ -1520,7 +1621,7 @@ const ITEMS: readonly CatalogItem[] = [
     rectMark(0, 0.3, 1, WIDE - 0.3, ASPHALT),
     ...Array.from({ length: 10 }, (_, i) => rectMark(0.1, 0.4 + 0.45 * i, 0.9, 0.65 + 0.45 * i, ROAD_LINE)),
   ]), refuge: true },
-  { ...flat('marking', 'markings', 'crosswalk-narrow', 'Narrow crosswalk', 1, NARROW, [
+  { ...flat('marking', 'markings', 'crosswalk-narrow', 'Medium crosswalk', 1, NARROW, [
     rectMark(0, 0.3, 1, NARROW - 0.3, ASPHALT),
     ...Array.from({ length: 5 }, (_, i) => rectMark(0.1, 0.45 + 0.45 * i, 0.9, 0.7 + 0.45 * i, ROAD_LINE)),
   ]), refuge: true },

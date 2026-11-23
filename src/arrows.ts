@@ -44,14 +44,14 @@ export const arrowLook = (arrow: Placed, roads: readonly Placed[]): ArrowLook =>
   return { paint: cls, shift: arrow.rotation === 1 || arrow.rotation === 2 ? -d : d };
 };
 
-// Placing an arrow on a narrow road's middle row (the center line runs along it, so it is no lane): it
+// Placing an arrow on a medium road's middle row (the center line runs along it, so it is no lane): it
 // goes into the lane on the side of that row the pointer is on
 export const snapArrow = <P extends Placed>(p: P, roads: readonly Placed[], point: Point | null): P => {
   if (!getObjectDef(p.defId).arrow || !point) return p;
   const runsX = alongX(p);
   const mid: Cell = runsX ? { x: p.x + 1, y: p.y } : { x: p.x, y: p.y + 1 };
   const road = laneRoadAt(roads, mid, runsX);
-  if (!road || getObjectDef(road.defId).lanes !== 'narrow') return p;
+  if (!road || getObjectDef(road.defId).lanes !== 'medium') return p;
   const row = runsX ? p.y - road.y : p.x - road.x;
   if (row !== 1) return p;
   const frac = runsX ? point.y - Math.floor(point.y) : point.x - Math.floor(point.x);

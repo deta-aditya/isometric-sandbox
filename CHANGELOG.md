@@ -8,7 +8,8 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 
 ## Waiting to be logged
 
-(nothing waiting)
+Finished, not yet confirmed by Deta:
+- #31 Narrow roads and dirt roads; 3-wide roads renamed Medium (2026-11-23)
 
 ## Log
 
