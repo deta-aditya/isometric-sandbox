@@ -1774,6 +1774,7 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'paths', id: 'red-brick', name: 'Red brick', color: 0x9a3f28 },
   { kind: 'tile', group: 'paths', id: 'cobblestone', name: 'Cobblestone', color: 0x77716a },
   { kind: 'tile', group: 'paths', id: 'running-track', name: 'Running track', color: 0xcf5f3c },
+  { kind: 'tile', group: 'paths', id: 'overgrown-path', name: 'Overgrown path', color: 0x9a9a86 },
   { kind: 'tile', group: 'water', id: 'canal', name: 'Canal', color: 0x2f7fb8, bank: 0xa8a29e },
   { kind: 'tile', group: 'water', id: 'stream', name: 'Stream', color: 0x3b93a8, bank: 0xc8b07a },
   { kind: 'culvert', group: 'waterside', id: 'culvert', name: 'Culvert' },
@@ -2017,7 +2018,8 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'floors', id: 'court-red', name: 'Court red', color: 0xc0504a },
   { kind: 'tile', group: 'floors', id: 'court-yellow', name: 'Court yellow', color: 0xd6a033 },
   { kind: 'tile', group: 'floors', id: 'mowed-grass', name: 'Mowed grass', color: 0x5fa04a, stripe: 0x4f8c3d },
-  { kind: 'tile', group: 'floors', id: 'turf-grass', name: 'Turf grass', color: 0x34a865 },
+  { kind: 'tile', group: 'floors', id: 'turf-grass', name: 'Turf grass light', color: 0x34a865 },
+  { kind: 'tile', group: 'floors', id: 'turf-grass-dark', name: 'Turf grass dark', color: 0x1a9060 },
 
   // Terrain. `grass` is the eraser: painting it takes the terrain away, so the tile is plain grass again.
   { kind: 'terrain', group: 'grass', id: 'grass', name: 'Grass', color: 0x3a7d44 },

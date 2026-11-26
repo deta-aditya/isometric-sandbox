@@ -1,12 +1,13 @@
 // Icons are rendered from the catalog with the same drawing code as the game,
 // so every item (including new ones) gets an icon that matches what gets placed.
 import { Container, Graphics, type Renderer } from 'pixi.js';
-import { CATALOG, type CatalogItem, type OpeningDef, type OpeningLook, getOpeningDef, getTileDef, getWallStyle, isPiece } from '../catalog';
+import { CATALOG, type CatalogItem, type OpeningDef, type OpeningLook, type TileDef, getOpeningDef, getTileDef, getWallStyle, isPiece } from '../catalog';
 import { CUT_WALL_H, WALL_H } from '../config';
 import { cellsOf, sizeOf, toScreen } from '../geometry';
 import { type State, initialState } from '../world';
 import { waterLayers } from './water';
 import { drawObject } from './draw';
+import { drawFloorPieces, floorPieces, isPlain } from './floors';
 import { drawBox, drawTile, drawWall, shade } from './shapes';
 
 export type Icons = ReadonlyMap<string, string>; // item or tool id -> image data URL
@@ -61,6 +62,16 @@ const patch = (g: Graphics, w: number, h: number, color: number, stripe?: number
     const k = stripe !== undefined && c.x % 2 === 1 ? stripe : color;
     drawTile(g, c.x, c.y, k, shade(k, 0.85));
   });
+
+// A floor or path's icon: a 2 by 2 patch with the game's own pattern (and, for a path that blends
+// into the ground, its grassy edges against the icon's grass)
+const floorPatch = (g: Graphics, item: TileDef): void => {
+  if (isPlain(item.id)) return patch(g, 2, 2, item.color, item.stripe);
+  patch(g, 2, 2, GRASS);
+  const tiles = cellsOf({ x: 0, y: 0, w: 2, h: 2 }).map((c) => ({ wx: c.x, wy: c.y, defId: item.id, color: item.color }));
+  const floorAt = (x: number, y: number) => (x >= 0 && x < 2 && y >= 0 && y < 2 ? item.id : undefined);
+  drawFloorPieces(g, floorPieces(tiles, floorAt), (x, y) => ({ x, y }), 1);
+};
 
 // Terrain: a soft round patch of the item's color on a grass tile (rings fading out to the grass),
 // with a few specks on it for flowery grass. The game's own look is drawn elsewhere; this is the tray's.
@@ -186,7 +197,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
     case 'terrain':
       return terrainPatch(g, item.color, item.specks);
     case 'tile':
-      return item.bank === undefined ? patch(g, 2, 2, item.color, item.stripe) : waterPatch(g, item.id);
+      return item.bank === undefined ? floorPatch(g, item) : waterPatch(g, item.id);
     case 'wall':
       return wallCorner(g, item.id);
     case 'opening':

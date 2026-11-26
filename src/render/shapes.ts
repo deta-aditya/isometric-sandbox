@@ -29,7 +29,7 @@ export const quad = ({ x, y, w, h }: Rect, z: number): P3[] => [
 
 // ===== Ground =====
 export const GRASS = 0x3a7d44;
-const GRID_LINE = 0x2d5e34;
+export const GRID_LINE = 0x2d5e34; // also the edge line of floors that blend into the ground
 
 // lineAlpha 0 leaves the outline off, for when grid lines are hidden
 export const drawTile = (g: Graphics, x: number, y: number, color = GRASS, line = GRID_LINE, lineAlpha = 1): void => {

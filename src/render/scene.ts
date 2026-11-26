@@ -34,7 +34,8 @@ import {
   terrainFill,
   cellInBounds,
 } from '../world';
-import { pointFromView, sizeInView } from '../view';
+import { pointFromView, pointToView, sizeInView } from '../view';
+import { type WorldTile, drawFloorPieces, floorPieces, isPlain } from './floors';
 import { createTerrainLayer } from './terrainLayer';
 import { drawCanalOpening, drawCanalSunk, drawCanalTop, drawCulvertOpening, drawCulvertSunk, drawCulvertTops, drawJointOpening, drawJointSunk, drawJointTops, waterLayers } from './water';
 import { drawObject } from './draw';
@@ -72,17 +73,39 @@ const drawDrawable = (g: Graphics, d: Drawable): void => {
 // A tile's column in the world (the drawn state is turned to the camera's view)
 const worldColumn = (state: State, t: Readonly<{ x: number; y: number }>): number =>
   Math.floor(pointFromView({ x: t.x + 0.5, y: t.y + 0.5 }, state.view, sizeInView(state.size, state.view)).x);
-const drawFloorsInto = (g: Graphics, state: State, lines: number, win: ScreenWindow | null = null): void => {
-  state.tiles.forEach((t) => {
-    if (!inWindow(win, { x: t.x, y: t.y, w: 1, h: 1 }, 0)) return;
+// Floors in the view's cells that pass `inside` (all of them, or a chunk), with what lies around them
+// for their edges. Plain floors are one square each; textured floors and paths go through floors.ts.
+const drawFloorsInto = (
+  g: Graphics, state: State, lines: number, inside: (x: number, y: number) => boolean = () => true, at = floorIndex(state), tiles: State['tiles'] = state.tiles,
+): void => {
+  const world = sizeInView(state.size, state.view);
+  // world tile <-> what the drawn (turned) state holds there
+  const toView = (x: number, y: number) => pointToView({ x, y }, state.view, world);
+  const floorAt = (wx: number, wy: number): string | undefined => {
+    const p = toView(wx + 0.5, wy + 0.5);
+    return at.get(`${Math.floor(p.x)},${Math.floor(p.y)}`);
+  };
+  const keep = (wx: number, wy: number): boolean => {
+    const p = toView(wx + 0.5, wy + 0.5);
+    return inside(Math.floor(p.x), Math.floor(p.y));
+  };
+  // textured tiles a little past the edge count too: their bare corners may fall inside
+  const textured: WorldTile[] = [];
+  tiles.forEach((t) => {
+    const own = inside(t.x, t.y);
+    if (!own && !(inside(t.x - 1, t.y) || inside(t.x + 1, t.y) || inside(t.x, t.y - 1) || inside(t.x, t.y + 1) || inside(t.x - 1, t.y - 1) || inside(t.x + 1, t.y + 1) || inside(t.x - 1, t.y + 1) || inside(t.x + 1, t.y - 1))) return;
     const { color, bank, stripe } = getTileDef(t.defId);
     if (bank !== undefined) return;
     // striped floors alternate by the tile's column in the world, so the rows keep their direction as
     // the camera turns
     const c = stripe !== undefined && worldColumn(state, t) % 2 === 1 ? stripe : color;
-    drawTile(g, t.x, t.y, c, shade(c, 0.85), lines);
+    if (isPlain(t.defId)) { if (own) drawTile(g, t.x, t.y, c, shade(c, 0.85), lines); return; }
+    const w = pointFromView({ x: t.x + 0.5, y: t.y + 0.5 }, state.view, world);
+    textured.push({ wx: Math.floor(w.x), wy: Math.floor(w.y), defId: t.defId, color: c });
   });
+  drawFloorPieces(g, floorPieces(textured, floorAt, keep), toView, lines);
 };
+const floorIndex = (state: State): ReadonlyMap<string, string> => new Map(state.tiles.map((t) => [`${t.x},${t.y}`, t.defId] as const));
 
 // A set of pieces drawn on their own on a patch of grass, as the game would show them (for blueprint cards)
 const PREVIEW_GRASS = 0x4b8f55;
@@ -111,7 +134,9 @@ export const drawPiecesPreview = (g: Graphics, base: State, p: Pieces): Containe
 export const createScene = (world: Container) => {
   const ground = new Graphics();
   const gridLines = new Graphics();
-  const floors = new Graphics();
+  // floors are drawn in chunks of the map, so a change redraws only the chunks around it (patterns make
+  // a floor many shapes)
+  const floors = new Container();
   const flats = new Graphics(); // flat ground pieces: roads, parking and loading bays
   const overlay = new Graphics();
   const solids = new Graphics();
@@ -178,15 +203,56 @@ export const createScene = (world: Container) => {
     drawGridLines(gridLines, size.w, size.h);
   };
 
-  // Floors change far less often than the pointer moves: redrawn only when what they show changes
-  let floorsDrawn: Readonly<{ tiles: State['tiles']; culverts: State['culverts']; lines: number; win: ScreenWindow | null }> | null = null;
+  // Floors change far less often than the pointer moves: a change redraws only the chunks it can
+  // reach (a tile's look depends on the tiles up to 2 away), and only chunks on screen are drawn
+  const CHUNK = 16;
+  const chunks = new Map<string, Graphics>();
+  const dirty = new Set<string>();
+  let floorsBase: Readonly<{ view: State['view']; size: State['size']; lines: number; culverts: State['culverts'] }> | null = null;
+  let floorsTiles: State['tiles'] | null = null;
+  let floorsAt: ReadonlyMap<string, string> = new Map();
+  let floorsWin: ScreenWindow | null | undefined;
+  const chunkKey = (x: number, y: number) => `${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`;
   const drawFloors = (state: State, win: ScreenWindow | null): void => {
     const lines = gridAlpha(state); // painted floors outline their tiles only while the grid shows
-    const f = floorsDrawn;
-    if (f && f.tiles === state.tiles && f.culverts === state.culverts && f.lines === lines && f.win === win) return;
-    floorsDrawn = { tiles: state.tiles, culverts: state.culverts, lines, win };
-    floors.clear();
-    drawFloorsInto(floors, state, lines, win);
+    const b = floorsBase;
+    if (!b || b.view !== state.view || b.size !== state.size || b.lines !== lines || b.culverts !== state.culverts) {
+      // a new frame of reference: start over
+      chunks.forEach((g) => g.destroy());
+      chunks.clear();
+      dirty.clear();
+      floorsBase = { view: state.view, size: state.size, lines, culverts: state.culverts };
+      floorsTiles = null;
+    }
+    if (floorsTiles === state.tiles && floorsWin === win) return;
+    if (floorsTiles !== state.tiles) {
+      const next = floorIndex(state);
+      // every cell whose floor changed, and the chunks within 2 tiles of it
+      const changed = (x: number, y: number) => {
+        for (let dx = -2; dx <= 2; dx += 2) for (let dy = -2; dy <= 2; dy += 2) dirty.add(chunkKey(x + dx, y + dy));
+      };
+      next.forEach((id, key) => { if (floorsAt.get(key) !== id) changed(...(key.split(',').map(Number) as [number, number])); });
+      floorsAt.forEach((_, key) => { if (!next.has(key)) changed(...(key.split(',').map(Number) as [number, number])); });
+      floorsAt = next;
+      floorsTiles = state.tiles;
+    }
+    floorsWin = win;
+    // the tiles by chunk, so each chunk looks only at its own and its neighbors'
+    const byChunk = new Map<string, State['tiles'][number][]>();
+    state.tiles.forEach((t) => { const k = chunkKey(t.x, t.y); (byChunk.get(k) ?? byChunk.set(k, []).get(k)!).push(t); });
+    const { w, h } = state.size; // the drawn state is already turned to the view
+    for (let cx = 0; cx * CHUNK < w; cx++) for (let cy = 0; cy * CHUNK < h; cy++) {
+      const key = `${cx},${cy}`;
+      if (!inWindow(win, { x: cx * CHUNK, y: cy * CHUNK, w: CHUNK, h: CHUNK }, 0)) continue;
+      if (chunks.has(key) && !dirty.has(key)) continue;
+      const g = chunks.get(key) ?? floors.addChild(new Graphics());
+      chunks.set(key, g);
+      dirty.delete(key);
+      g.clear();
+      const [x0, y0] = [cx * CHUNK, cy * CHUNK];
+      const around = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => byChunk.get(`${cx + dx},${cy + dy}`) ?? []));
+      drawFloorsInto(g, state, lines, (x, y) => x >= x0 && x < x0 + CHUNK && y >= y0 && y < y0 + CHUNK, floorsAt, around);
+    }
   };
 
   // An object's footprint, or for a flat piece (a road curve) just the cells it stands on

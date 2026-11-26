@@ -14,6 +14,7 @@ Finished, not yet confirmed by Deta:
 - #31c Narrow corner and Dirt corner (2026-11-23)
 - #36, #42 Gym, Dorm and Laundry furniture tabs (2026-11-26)
 - #32 Running track kit: straights, curves, start and finish lines (2026-11-26)
+- #11 Floor and path textures, Overgrown path, Turf grass dark, grassy dirt path edges, diagonal paths (2026-11-26)
 
 ## Log
 
