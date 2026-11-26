@@ -22,7 +22,7 @@ const WHITE = 0xf1f5f9, ASPHALT = 0x44444c, TRACK = 0xa06f30, STRIP = 0x6b8f4a, 
 // ===== Names and tabs (#31, regrouped in #31b) =====
 const flooring = CATEGORIES.find((c) => c.id === 'flooring')!;
 assert.deepEqual(flooring.groups.map((g) => g.name),
-  ['Floors', 'Paths', 'Wide roads', 'Medium roads', 'Narrow roads', 'Dirt roads', 'Bus bay', 'Markings', 'Courts', 'Water']);
+  ['Floors', 'Paths', 'Wide roads', 'Medium roads', 'Narrow roads', 'Dirt roads', 'Bus bay', 'Markings', 'Courts', 'Track', 'Water']);
 // wide roads have no links; medium roads carry their links to wide, narrow roads theirs to medium and wide
 assert.deepEqual(itemsIn('roads').map((i) => i.name),
   ['Straight road', '1 side dashed', '2 sides dashed', 'Sharp curve', 'Gentle curve', 'T-junction', 'Crossroads', 'Road end']);

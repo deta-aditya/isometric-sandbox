@@ -482,7 +482,10 @@ export const objectCandidate = (s: State, cell: Cell): ObjectPlacement | null =>
 // A straight road under a cell (any width from the 2-wide narrow and dirt roads up; the bus bay middle,
 // also laid by dragging, is not a road to line up with)
 const straightAt = (s: State, c: Cell): ObjectPlacement | undefined =>
-  s.objects.find((o) => layerOf(o.defId) === 'road' && isRun(o.defId) && o.defId !== 'bay-middle' && Math.min(o.w, o.h) === 1 && Math.max(o.w, o.h) >= 2 && onCell(o, c));
+  s.objects.find((o) => layerOf(o.defId) === 'road' && isRun(o.defId) && !isTrack(o.defId) && o.defId !== 'bay-middle' && Math.min(o.w, o.h) === 1 && Math.max(o.w, o.h) >= 2 && onCell(o, c));
+// Running track pieces (#32) share the road layer but are not roads: a road piece never snaps onto a
+// track or replaces it, and a track piece never replaces road
+const isTrack = (defId: string): boolean => getObjectDef(defId).group === 'track';
 
 // A junction, link or road end held over a straight road slides across to line up with it: centered
 // on the road's width, so a piece as wide as the road meets its edges exactly, and a narrowing piece's
@@ -508,6 +511,7 @@ export const buildPlan = (s: State, p: ObjectPlacement, run = false): BuildPlan 
   const roads = s.objects.filter((o) => layerOf(o.defId) === 'road' && sharesCells(o, p));
   if (roads.some((o) => o.defId === p.defId && o.rotation === p.rotation && o.x === p.x && o.y === p.y)) return no;
   if (run && roads.some((o) => !isRun(o.defId))) return no;
+  if (roads.some((o) => isTrack(o.defId) !== isTrack(p.defId))) return no;
   const mine = new Set(occupiedCells(p).map(cellKey));
   const paint = roads.length === 0 ? [] : s.objects.filter((o) => {
     const layer = layerOf(o.defId);

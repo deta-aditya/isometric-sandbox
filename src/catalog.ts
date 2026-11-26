@@ -38,6 +38,7 @@ export type GroupId =
   | 'dirtroad'
   | 'markings'
   | 'courts'
+  | 'track'
   | 'water'
   | 'walls'
   | 'doors'
@@ -101,6 +102,7 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'busbay', name: 'Bus bay' },
       { id: 'markings', name: 'Markings' },
       { id: 'courts', name: 'Courts' },
+      { id: 'track', name: 'Track' },
       { id: 'water', name: 'Water' },
     ],
   },
@@ -698,6 +700,58 @@ const busBox: Mark[] = (() => {
   ];
   return [...box, ...B(0.6), ...U(1.25), ...S(1.9)];
 })();
+
+// ===== Running track kit (#32) =====
+// A track is TRACK_LANES lanes of half a tile (two runners side by side per tile) in the Running track
+// path's red, a white line at every lane's edge. A straight is one tile long and runs along x; a curve
+// is a quarter turn of inner radius TRACK_INNER, so four make the oval's round ends and the infield is
+// 2 x TRACK_INNER across (a 12 by 6 court fits between 12 tiles of straights).
+const TRACK_RED = 0xcf5f3c;
+const TRACK_W = 3; // tiles across
+const TRACK_LANES = 6; // half a tile each: a tile holds two runners side by side
+const LANE_W = TRACK_W / TRACK_LANES;
+const TRACK_INNER = 4;
+const TL = 0.05; // track line width
+const trackLineAts = Array.from({ length: TRACK_LANES + 1 }, (_, i) => Math.min(TRACK_W - 0.03 - TL / 2, Math.max(0.03 + TL / 2, i * LANE_W)));
+const trackStraight: Mark[] = [
+  rectMark(0, 0, 1, TRACK_W, TRACK_RED),
+  ...trackLineAts.map((at) => rectMark(0, at - TL / 2, 1, at + TL / 2, ROAD_LINE)),
+];
+const trackCurve = (() => {
+  const size = TRACK_INNER + TRACK_W;
+  const [a0, a1] = [-Math.PI / 2, 0];
+  const marks = [
+    sector(0, size, TRACK_INNER, size, a0, a1, TRACK_RED),
+    ...trackLineAts.map((at) => sector(0, size, size - at - TL / 2, size - at + TL / 2, a0, a1, ROAD_LINE)),
+  ];
+  const inside = (x: number, y: number) => { const r = Math.hypot(x, y - size); return x >= 0 && y <= size && r > TRACK_INNER && r < size; };
+  return { marks, cells: cellsWhere(size, size, inside), size };
+})();
+// Lane numbers: 3 by 5 block digits, read by a runner heading along +x (top toward +x, left toward -y)
+const DIGITS: Record<number, readonly string[]> = {
+  1: ['.#.', '##.', '.#.', '.#.', '###'],
+  2: ['###', '..#', '###', '#..', '###'],
+  3: ['###', '..#', '###', '..#', '###'],
+  4: ['#.#', '#.#', '###', '..#', '..#'],
+  5: ['###', '#..', '###', '..#', '###'],
+  6: ['###', '#..', '###', '#.#', '###'],
+  7: ['###', '..#', '.#.', '.#.', '.#.'],
+  8: ['###', '#.#', '###', '#.#', '###'],
+};
+const digitMarks = (d: number, xTop: number, yMid: number, px: number): Mark[] =>
+  (DIGITS[d] ?? []).flatMap((row, r) => [...row].flatMap((ch, c) =>
+    ch === '#' ? [rectMark(xTop - (r + 1) * px, yMid + (0.5 - c) * px, xTop - r * px, yMid + (1.5 - c) * px, ROAD_LINE)] : []));
+const startLine: Mark[] = [
+  rectMark(0.82, 0.03, 0.88, TRACK_W - 0.03, ROAD_LINE),
+  ...Array.from({ length: TRACK_LANES }, (_, i) => digitMarks(i + 1, 0.7, (i + 0.5) * LANE_W, 0.08)).flat(),
+];
+const finishLine: Mark[] = (() => {
+  const q = 0.16;
+  const across = Math.round((TRACK_W - 0.06) / q);
+  const qa = (TRACK_W - 0.06) / across;
+  return [0, 1].flatMap((row) => Array.from({ length: across }, (_, k) =>
+    rectMark(0.3 + row * q, 0.03 + k * qa, 0.3 + (row + 1) * q, 0.03 + (k + 1) * qa, (k + row) % 2 === 0 ? ROAD_LINE : 0x111827)));
+})();
 const wideSharp = curve(WIDE, 1);
 const wideGentle = curve(WIDE, 4);
 const narrowSharp = curve(NARROW, 1);
@@ -757,6 +811,11 @@ const soccerEnd = (bx: number, dir: 1 | -1): Mark[] => {
 const corner = (x: number, y: number, a: number): Mark => sector(x, y, 0.3 - CL / 2, 0.3 + CL / 2, a, a + Math.PI / 2, ROAD_LINE);
 
 const COURTS: readonly ObjectDef[] = [
+  // Running track kit (#32)
+  { ...flat('road', 'track', 'track-straight', 'Track straight', 1, TRACK_W, trackStraight), run: true },
+  flat('road', 'track', 'track-curve', 'Track curve', trackCurve.size, trackCurve.size, trackCurve.marks, trackCurve.cells),
+  flat('marking', 'track', 'start-line', 'Start line', 1, TRACK_W, startLine),
+  flat('marking', 'track', 'finish-line', 'Finish line', 1, TRACK_W, finishLine),
   flat('marking', 'courts', 'basketball-court', 'Basketball court', 12, 6, [
     ...courtOutline(12),
     rectMark(6 - CL / 2, 0, 6 + CL / 2, 6, ROAD_LINE),
