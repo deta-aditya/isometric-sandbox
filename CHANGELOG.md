@@ -12,6 +12,7 @@ Finished, not yet confirmed by Deta:
 - #31 Narrow roads and dirt roads; 3-wide roads renamed Medium (2026-11-23)
 - #31b Road links for narrow roads, regrouped road tabs, arrows on narrow roads, Bus stop box (2026-11-23)
 - #31c Narrow corner and Dirt corner (2026-11-23)
+- #36, #42 Gym, Dorm and Laundry furniture tabs (2026-11-26)
 
 ## Log
 
