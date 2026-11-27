@@ -80,7 +80,7 @@ const tamper = (edit: (d: any) => void): ReturnType<typeof decodeGame> => { cons
 assert.equal(decodeGame(null), null);
 assert.equal(decodeGame('not json'), null);
 assert.equal(decodeGame('7'), null);
-assert.equal(tamper((d) => (d.version = 4)), null);
+assert.equal(tamper((d) => (d.version = 5)), null);
 assert.equal(tamper((d) => (d.version = 0)), null);
 [15, 257, 40.5, '40', null, 0, -20].forEach((bad) => assert.equal(tamper((d) => (d.w = bad)), null, `w ${String(bad)}`));
 assert.equal(tamper((d) => (d.h = 15)), null);
@@ -228,7 +228,7 @@ reset();
   const ground = [0, 1, 2].flatMap((y) => [3, 4, 5, 6].map((x) => ({ x, y, defId: y === 1 ? 'moss' : 'clay' })));
   const withGround: GameWorld = { ...built, size: wide, terrain: [...ground, { x: 39, y: 19, defId: 'flowery-grass' }, { x: 30, y: 7, defId: 'terrain-sand' }] };
   const text2 = encodeGame(withGround);
-  assert.equal(JSON.parse(text2).version, 3);
+  assert.equal(JSON.parse(text2).version, 4);
   const read2 = decodeGame(text2);
   assert.equal(read2?.dropped, 0);
   const byCell = (a: { x: number; y: number }, b: { x: number; y: number }) => a.y - b.y || a.x - b.x;
@@ -278,10 +278,10 @@ reset();
   assert.deepEqual(old.world.tiles.map((t) => `${t.x},${t.y}:${t.defId}`), ['0,0:stone', '1,0:stone']);
   assert.deepEqual([...old.world.terrain].sort(byCell).map((t) => `${t.x},${t.y}:${t.defId}`), ['2,0:terrain-gravel', '3,0:terrain-gravel', '4,0:terrain-gravel', '5,0:terrain-sand', '6,0:terrain-sand', '0,1:terrain-gravel']);
   assert.equal(old.dropped, 1); // the unknown tile
-  // a version 1 game with no terrain field at all is fine, and writes back as version 3
+  // a version 1 game with no terrain field at all is fine, and writes back as the current version (4)
   const plain = decodeGame(JSON.stringify({ ...v1, tiles: { palette: ['stone'], runs: [0, 0, 2, 0] } }));
   assert.equal(plain?.world.terrain.length, 0);
-  assert.equal(JSON.parse(encodeGame(old.world)).version, 3);
+  assert.equal(JSON.parse(encodeGame(old.world)).version, 4);
   assert.deepEqual(normal(decodeGame(encodeGame(old.world))!.world), normal(old.world));
   // a version 1 save kept in the browser loads as before, through the index
   reset();
@@ -289,7 +289,7 @@ reset();
   store.set('iso-sandbox:save:1', JSON.stringify(v1));
   assert.equal(readIndex().length, 1);
   assert.equal(readGame(1)?.world.terrain.length, 6);
-  ok('a version 1 save loads with its gravel and sand tiles as terrain, and is written again as version 3');
+  ok('a version 1 save loads with its gravel and sand tiles as terrain, and is written again as the current version');
 
   // version 3 holds the map's ground: it round trips, and versions 1 and 2 (and unknown grounds) are grass
   const sandy: GameWorld = { ...fullWorld, size: sizeOf(20, 20), tiles: [], ground: 'terrain-sand', terrain: [{ x: 1, y: 1, defId: 'grass' }, { x: 2, y: 1, defId: 'moss' }] };

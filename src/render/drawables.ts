@@ -28,7 +28,7 @@ import {
   heldPlan,
   NO_PAINT,
   paintPlan,
-  storedPaint,
+  withCoat,
   wallHeight,
   tileAt,
 } from '../world';
@@ -97,7 +97,7 @@ const wallLooks = (state: State): ReadonlyMap<string, WallLook> => {
     .filter((t) => t.side === 'after')
     .forEach(({ wall }) => {
       const at = looks.get(edgeKey(wall))?.wall ?? wall;
-      looks.set(edgeKey(wall), { wall: { ...at, paint: { ...at.paint, after: storedPaint(paint.paintId) } }, alpha: 1 });
+      looks.set(edgeKey(wall), { wall: withCoat(at, 'after', paint.paintId), alpha: 1 });
     });
 
   if (state.tool === 'build' && item.kind === 'wall') {
@@ -106,7 +106,7 @@ const wallLooks = (state: State): ReadonlyMap<string, WallLook> => {
       .filter((e) => canPlaceWall(state, e))
       .forEach((e) => {
         const existing = looks.get(edgeKey(e))?.wall;
-        looks.set(edgeKey(e), { wall: { ...e, styleId: item.id, opening: existing?.opening ?? null, paint: existing?.paint ?? NO_PAINT }, alpha: 0.6 });
+        looks.set(edgeKey(e), { wall: { ...e, styleId: item.id, opening: existing?.opening ?? null, paint: existing?.paint ?? NO_PAINT, finish: existing?.finish ?? NO_PAINT }, alpha: 0.6 });
       });
   }
 
@@ -126,7 +126,9 @@ const wallLooks = (state: State): ReadonlyMap<string, WallLook> => {
 // and stays see-through (white reads frosted, charcoal smoked).
 export const faceColor = (wall: WallSegment): number => {
   const style = getWallStyle(wall.styleId);
-  const paint = wall.paint.after ? getPaint(wall.paint.after).color : null;
+  // a finish with a natural color (brick, stone, block, wood) shows it under Plain (#11b)
+  const natural = wall.finish.after ? getPaint(wall.finish.after).natural : undefined;
+  const paint = wall.paint.after ? getPaint(wall.paint.after).color : (natural ?? null);
   if (paint === null) return style.color;
   return style.glass ? mix(style.color, paint, GLASS_TINT) : paint;
 };
@@ -135,7 +137,7 @@ const GLASS_TINT = 0.75;
 // A textured paint on the face the camera sees, placed by the wall's world line (#11b): the segment's
 // start along that line, whether the view runs the same way, and a key for the line
 const textureOf = (state: State, wall: WallSegment): Pick<WallPiece, 'texture'> => {
-  const id = wall.paint.after ? getPaint(wall.paint.after).texture : undefined;
+  const id = wall.finish.after ? getPaint(wall.finish.after).texture : undefined;
   const style = getWallStyle(wall.styleId);
   if (!id || style.fence || style.pole) return {};
   const world = sizeInView(state.size, state.view);

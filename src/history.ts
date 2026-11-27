@@ -26,7 +26,7 @@ const fingerprint = (w: World): string =>
     w.objects.map((o) => `${o.id}:${o.defId}:${o.x},${o.y}:${o.rotation}`).sort().join('|'),
     w.tiles.map((t) => `${t.x},${t.y}:${t.defId}`).sort().join('|'),
     w.terrain.map((t) => `${t.x},${t.y}:${t.defId}`).sort().join('|'),
-    w.walls.map((x) => `${edgeKey(x)}:${x.styleId}:${x.opening ?? ''}:${x.paint.before ?? ''}/${x.paint.after ?? ''}`).sort().join('|'),
+    w.walls.map((x) => `${edgeKey(x)}:${x.styleId}:${x.opening ?? ''}:${x.paint.before ?? ''}/${x.paint.after ?? ''}:${x.finish.before ?? ''}/${x.finish.after ?? ''}`).sort().join('|'),
     w.culverts.map(edgeKey).sort().join('|'),
   ].join('#');
 

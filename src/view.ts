@@ -31,6 +31,7 @@ const quarter = (k: number, m: number) => {
     ...edge(w),
     opening: reverses(w) ? swapEnd(w.opening) : w.opening,
     paint: sideSwaps(w) ? { before: w.paint.after, after: w.paint.before } : w.paint,
+    finish: sideSwaps(w) ? { before: w.finish.after, after: w.finish.before } : w.finish,
   });
   const object = (o: ObjectEntity): ObjectEntity => ({ ...rect(o), rotation: spin(o.rotation, 1) });
   const tile = (t: Tile): Tile => ({ ...t, ...cell(t) });

@@ -6,7 +6,8 @@ import type { Blueprint, Pieces } from './world';
 
 const KEY = 'iso-sandbox:blueprints';
 // Version 2 added terrain. Version 1 blueprints still load: their gravel and sand tiles become terrain.
-const VERSION = 2;
+// Version 3 gives each wall side a finish next to its paint (#11b); older walls have none.
+const VERSION = 3;
 
 const pieces = (p: unknown, version: number): Pieces => {
   const x = (p ?? {}) as Record<string, unknown>;
@@ -37,7 +38,7 @@ export const decodeBlueprints = (text: string | null): readonly Blueprint[] => {
   try {
     const data = JSON.parse(text) as { version?: unknown; blueprints?: unknown };
     const version = data.version;
-    if (version !== 1 && version !== VERSION) return [];
+    if (version !== 1 && version !== 2 && version !== VERSION) return [];
     const seen = new Set<number>();
     return keep(list(data.blueprints).map(blueprint(version))).filter((b) => !seen.has(b.id) && seen.add(b.id));
   } catch {

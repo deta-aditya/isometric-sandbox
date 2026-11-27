@@ -170,9 +170,9 @@ ok('the store reads back what it wrote, and drops what it cannot trust instead o
   // a library of only gravel and sand is not empty any more
   old.blueprints[0]!.pieces.tiles = [{ x: 0, y: 0, defId: 'sand' }];
   assert.equal(decodeBlueprints(JSON.stringify(old))[0]?.pieces.terrain[0]?.defId, 'terrain-sand');
-  // written again it is version 2, and in version 2 an old gravel tile is just an unknown tile
-  assert.equal(JSON.parse(encodeBlueprints(upgraded)).version, 2);
+  // written again it is the current version (3), and from version 2 on an old gravel tile is just an unknown tile
+  assert.equal(JSON.parse(encodeBlueprints(upgraded)).version, 3);
   assert.deepEqual(decodeBlueprints(encodeBlueprints(upgraded)), upgraded);
   assert.deepEqual(decodeBlueprints(JSON.stringify({ ...old, version: 2 })), []);
-  ok('version 1 blueprints turn gravel and sand tiles into terrain; the library is written as version 2');
+  ok('version 1 blueprints turn gravel and sand tiles into terrain; the library is written as the current version');
 }

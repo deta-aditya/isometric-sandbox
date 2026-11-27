@@ -13,6 +13,7 @@ import {
   getOpeningDef,
   isTerrain,
   getPaint,
+  isFinish,
   type Rotation,
   type CulvertPiece,
   culvertItemOf,
@@ -68,7 +69,10 @@ export type TerrainCell = Readonly<{ x: number; y: number; defId: string }>;
 export type WallPaint = Readonly<{ before: string | null; after: string | null }>;
 export const NO_PAINT: WallPaint = { before: null, after: null };
 export type WallSide = keyof WallPaint;
-export type WallSegment = Edge & Readonly<{ styleId: string; opening: string | null; paint: WallPaint }>;
+// Each side has two coats (#11b): `paint` (its color) and `finish` (a texture drawn in that color), set
+// apart so painting keeps the finish and a finish keeps the color. Both use the same per-side shape.
+export type Coat = 'paint' | 'finish';
+export type WallSegment = Edge & Readonly<{ styleId: string; opening: string | null; paint: WallPaint; finish: WallPaint }>;
 
 // An in-progress pointer gesture
 export type Drag =
@@ -923,13 +927,13 @@ const nextFaces = (walls: ReadonlyMap<string, WallSegment>, wall: WallSegment, s
   });
 
 const faceKey = (t: PaintTarget) => `${edgeKey(t.wall)}|${t.side}`;
-const paintOn = (t: PaintTarget): string | null => t.wall.paint[t.side];
-
-// Every face joined to `start`. 'same' stops at a different paint; 'all' goes over everything.
-export const wallSurface = (s: State, start: PaintTarget, mode: FillMode): PaintTarget[] => {
+// Every face joined to `start`. 'same' stops at a different coat (a paint fill at a different paint,
+// a finish fill at a different finish); 'all' goes over everything.
+export const wallSurface = (s: State, start: PaintTarget, mode: FillMode, coat: Coat = 'paint'): PaintTarget[] => {
   if (!isPaintable(start.wall.styleId)) return [];
+  const on = (t: PaintTarget): string | null => t.wall[coat][t.side];
   const walls = new Map(s.walls.filter((w) => !isFence(w.styleId)).map((w) => [edgeKey(w), w]));
-  const fits = (t: PaintTarget) => isPaintable(t.wall.styleId) && (mode === 'all' || paintOn(t) === paintOn(start));
+  const fits = (t: PaintTarget) => isPaintable(t.wall.styleId) && (mode === 'all' || on(t) === on(start));
   const seen = new Map<string, PaintTarget>([[faceKey(start), start]]);
   const queue: PaintTarget[] = [start];
   for (let t = queue.pop(); t; t = queue.pop()) {
@@ -955,7 +959,7 @@ export const paintPlan = (s: State): PaintPlan | null => {
   const mode = fillMode(s);
   if (mode && !s.drag) {
     const start = faceUnderPointer(s);
-    return { targets: start ? wallSurface(s, start, mode) : [], paintId: item.id, fill: mode };
+    return { targets: start ? wallSurface(s, start, mode, coatOf(item.id)) : [], paintId: item.id, fill: mode };
   }
   const here = edgeUnder(s, s.point).edge;
   const drag = s.drag?.mode === 'wallPaint' ? s.drag : null;
@@ -968,19 +972,29 @@ export const paintPlan = (s: State): PaintPlan | null => {
   return { targets, paintId: item.id, fill: null };
 };
 
-// The paint id stored on a side, or null for Plain (show the material)
-export const storedPaint = (paintId: string): string | null => (getItem(paintId).kind === 'paint' && getPaint(paintId).color !== null ? paintId : null);
+// Which coat a paint item goes on: a finish or the color
+export const coatOf = (paintId: string): Coat => (isFinish(paintId) ? 'finish' : 'paint');
+// The id stored on a side's coat, or null for Plain (show the material) and No finish (no texture)
+export const storedPaint = (paintId: string): string | null => {
+  if (getItem(paintId).kind !== 'paint') return null;
+  const p = getPaint(paintId);
+  return (p.coat === 'finish' ? p.texture !== undefined : p.color !== null) ? paintId : null;
+};
+// A wall with one side's coat set to what a paint item stores
+export const withCoat = (w: WallSegment, side: WallSide, paintId: string): WallSegment => {
+  const coat = coatOf(paintId);
+  return { ...w, [coat]: { ...w[coat], [side]: storedPaint(paintId) } };
+};
 
 const applyPaint = (s: State, plan: PaintPlan | null): State => {
   if (!plan || plan.targets.length === 0) return s;
-  const value = storedPaint(plan.paintId);
   const sides = new Map<string, WallSide[]>();
   plan.targets.forEach((t) => sides.set(edgeKey(t.wall), [...(sides.get(edgeKey(t.wall)) ?? []), t.side]));
   return {
     ...s,
     walls: s.walls.map((w) => {
       const paintHere = sides.get(edgeKey(w));
-      return paintHere ? { ...w, paint: paintHere.reduce((p, side) => ({ ...p, [side]: value }), w.paint) } : w;
+      return paintHere ? paintHere.reduce((x, side) => withCoat(x, side, plan.paintId), w) : w;
     }),
   };
 };
@@ -1235,9 +1249,9 @@ const placeWalls = (s: State, edges: readonly Edge[], styleId: string, restyle: 
       const current = byEdge.get(edgeKey(e));
       const kept = current?.opening ?? null;
       const fits = kept !== null && openingFitsStyle(styleId, kept);
-      // paint stays on a restyle as long as the new material takes paint
-      const paint = current && isPaintable(styleId) ? current.paint : NO_PAINT;
-      byEdge.set(edgeKey(e), { ...e, styleId, opening: fits ? kept : null, paint });
+      // paint and finish stay on a restyle as long as the new material takes paint
+      const keep = current && isPaintable(styleId);
+      byEdge.set(edgeKey(e), { ...e, styleId, opening: fits ? kept : null, paint: keep ? current.paint : NO_PAINT, finish: keep ? current.finish : NO_PAINT });
     });
   const next = { ...s, walls: [...byEdge.values()] };
   const floor = getWallStyle(styleId).floor;
@@ -1358,6 +1372,7 @@ export const joinWalls = (there: WallSegment, landing: WallSegment): WallSegment
     ...there,
     opening: there.opening ?? landing.opening,
     paint: { before: landing.paint.before ?? there.paint.before, after: landing.paint.after ?? there.paint.after },
+    finish: { before: landing.finish.before ?? there.finish.before, after: landing.finish.after ?? there.finish.after },
   };
 };
 

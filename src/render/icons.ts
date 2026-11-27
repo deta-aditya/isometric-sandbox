@@ -195,7 +195,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
     case 'culvert':
       return item.piece ? jointPatch(g, item.piece) : culvertPatch(g);
     case 'paint':
-      return paintPreview(g, item.color, item.texture);
+      return paintPreview(g, item.color ?? item.natural ?? null, item.texture);
     case 'terrain':
       return terrainPatch(g, item.color, item.specks);
     case 'tile':

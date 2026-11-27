@@ -16,8 +16,10 @@ const LAST_KEY = 'iso-sandbox:last';
 const SETTINGS_KEY = 'iso-sandbox:settings';
 // Version 2 added terrain (stored like tiles). Version 1 games still load: their gravel and sand tiles
 // become terrain at the same cells. Version 3 added the map's ground (a terrain id); older saves are
-// on grass. The saves index has its own, unchanged, version.
-const VERSION = 3;
+// on grass. Version 4 gives each wall side a finish next to its paint (#11b); older walls have none, and a
+// finish the first build of #11b kept in the paint is read back as finish plus color (pieceCodec). The
+// saves index has its own, unchanged, version.
+const VERSION = 4;
 const INDEX_VERSION = 1;
 
 export type SaveEntry = Readonly<{ id: number; name: string; w: number; h: number; savedAt: number }>;
@@ -74,7 +76,7 @@ export const decodeGame = (text: string | null): Loaded | null => {
     return null;
   }
   const version = data.version;
-  if ((version !== 1 && version !== 2 && version !== VERSION) || !gridSide(data.w) || !gridSide(data.h)) return null;
+  if ((version !== 1 && version !== 2 && version !== 3 && version !== VERSION) || !gridSide(data.w) || !gridSide(data.h)) return null;
   const size = sizeOf(data.w, data.h);
   let dropped = 0;
   const drop = (n = 1) => void (dropped += n);
@@ -149,7 +151,7 @@ export const decodeGame = (text: string | null): Loaded | null => {
   const tiles: Tile[] = held.filter((t) => isKind(t.defId, 'tile'));
   const moved: TerrainCell[] = held.flatMap((t) => (isKind(t.defId, 'tile') ? [] : [{ x: t.x, y: t.y, defId: TILE_TO_TERRAIN[t.defId] ?? '' }]));
   // The ground is a terrain id; a missing or unknown one (and every version 1 or 2 save) is grass
-  const ground = version === VERSION && isKind(data.ground, 'terrain') ? data.ground : 'grass';
+  const ground = (version === 3 || version === VERSION) && isKind(data.ground, 'terrain') ? data.ground : 'grass';
   // An entry equal to the ground says nothing and is never stored (`grass` on a sand map is a real entry)
   const terrain: TerrainCell[] = [
     ...moved,

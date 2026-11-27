@@ -1,7 +1,7 @@
 // Reading pieces back from storage, shared by blueprints and saved games. Every reader is forgiving
 // and checks one piece at a time: what does not parse, or names an item the catalog no longer has, is
 // dropped (null) instead of breaking the load. An unknown door leaves its wall; an unknown wall goes.
-import { CATALOG, type CatalogItem, TILE_TO_TERRAIN } from './catalog';
+import { CATALOG, type CatalogItem, OLD_FINISHES, TILE_TO_TERRAIN, isFinish } from './catalog';
 import type { Cell, Edge } from './geometry';
 import type { ObjectEntity, TerrainCell, Tile, WallSegment } from './world';
 
@@ -20,12 +20,21 @@ export const object = (o: unknown): ObjectEntity | null => {
     : null;
 };
 
-const paintOf = (p: unknown): string | null => (isKind(p, 'paint') ? p : null);
+// A side's coats: its paint (a color) and its finish (#11b). A finish saved by the first build of #11b sits in
+// the paint and reads as that finish plus its closest color; a finish saved on its own wins over that.
+const coatsOf = (paint: unknown, finish: unknown): readonly [string | null, string | null] => {
+  const old = typeof paint === 'string' && Object.hasOwn(OLD_FINISHES, paint) ? OLD_FINISHES[paint] : undefined;
+  const color = old ? old[1] : isKind(paint, 'paint') && !isFinish(paint) ? paint : null;
+  const texture = isKind(finish, 'paint') && isFinish(finish) && finish !== 'finish-none' ? finish : (old?.[0] ?? null);
+  return [color, texture];
+};
 export const wall = (w: unknown): WallSegment | null => {
   const x = w as WallSegment;
   if (!edge(x) || !isKind(x.styleId, 'wall')) return null;
   const opening = isKind(x.opening, 'opening') ? x.opening : null;
-  return { axis: x.axis, x: x.x, y: x.y, styleId: x.styleId, opening, paint: { before: paintOf(x.paint?.before), after: paintOf(x.paint?.after) } };
+  const [pb, fb] = coatsOf(x.paint?.before, x.finish?.before);
+  const [pa, fa] = coatsOf(x.paint?.after, x.finish?.after);
+  return { axis: x.axis, x: x.x, y: x.y, styleId: x.styleId, opening, paint: { before: pb, after: pa }, finish: { before: fb, after: fa } };
 };
 
 export const tile = (t: unknown): Tile | null => {

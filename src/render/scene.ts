@@ -411,7 +411,7 @@ export const createScene = (world: Container) => {
       case 'paint': {
         // A strip on the floor along the side being painted, in the paint's color
         const plan = paintPlan(state);
-        const color = item.color ?? 0xe7e5e4;
+        const color = item.color ?? item.natural ?? 0xe7e5e4; // a finish shows its natural color, or plaster
         return plan?.targets.forEach((t) => drawFootprint(overlay, sideStrip(t.wall, t.side), color, 0.85));
       }
       case 'wall': {

@@ -209,7 +209,12 @@ export type CulvertPiece = 'outlet' | 'inlet';
 export type CulvertDef = Base & Readonly<{ kind: 'culvert'; piece?: CulvertPiece }>;
 // Paint is a color layer on one side of a wall, over the wall's material. A null color is Plain:
 // it strips the paint so the side shows its material again.
-export type PaintDef = Base & Readonly<{ kind: 'paint'; color: number | null; texture?: WallTextureId }>;
+// A paint goes on one side of a wall. Plain paints set the side's color (null is Plain: the material
+// shows). A finish (#11b, coat 'finish') is a second coat on the same side: a texture drawn in the side's
+// color, so the two merge (painted brick, striped paper in any color). Under Plain a finish with a natural
+// color (brick, stone, block, wood) shows that color; one without shows over the material's color.
+// The finish with no texture (No finish) takes the texture off.
+export type PaintDef = Base & Readonly<{ kind: 'paint'; color: number | null; coat?: 'finish'; texture?: WallTextureId; natural?: number }>;
 // `floor` is the tile laid automatically when walls of this style close off a room
 // A fence is a wall style with a fence look. It is built like a wall but never forms a room, stays low
 // whatever the wall view, and takes gates instead of doors and windows. The look is plain data that one
@@ -1818,21 +1823,24 @@ const ITEMS: readonly CatalogItem[] = [
       ['charcoal', 'Charcoal', 0x374151],
     ] as const
   ).map(([id, name, color]): PaintDef => ({ kind: 'paint', group: 'paints', id: `paint-${id}`, name, color })),
-  // Finishes: paints with a texture drawn on the wall face (#11b)
+  // Finishes: textures that take the side's color (#11b)
   ...(
     [
-      ['brushed', 'Brush painted', 0xd6c3a1, 'brushed'],
-      ['red-brick', 'Red brickwork', 0xa6452e, 'brick'],
-      ['white-brick', 'White brickwork', 0xe7e2d8, 'brick'],
-      ['stonework', 'Stonework', 0xa8a294, 'stone'],
-      ['block', 'Concrete block', 0xa3a3a0, 'block'],
-      ['wood', 'Wood panels', 0xb07a48, 'boards'],
-      ['wainscot', 'Wainscot', 0xf1e6cc, 'wainscot'],
-      ['tiles', 'White tiles', 0xeef2f3, 'tiles'],
-      ['stripes', 'Striped paper', 0x8fae9a, 'stripes'],
-      ['diamonds', 'Diamond paper', 0xb98a9a, 'diamonds'],
+      ['none', 'No finish', undefined, undefined],
+      ['brushed', 'Brush painted', 'brushed', undefined],
+      ['brick', 'Brickwork', 'brick', 0xa6452e],
+      ['stone', 'Stonework', 'stone', 0xa8a294],
+      ['block', 'Concrete block', 'block', 0xa3a3a0],
+      ['wood', 'Wood panels', 'boards', 0xb07a48],
+      ['wainscot', 'Wainscot', 'wainscot', undefined],
+      ['tiles', 'Tiles', 'tiles', undefined],
+      ['stripes', 'Striped paper', 'stripes', undefined],
+      ['diamonds', 'Diamond paper', 'diamonds', undefined],
     ] as const
-  ).map(([id, name, color, texture]): PaintDef => ({ kind: 'paint', group: 'finishes', id: `paint-${id}`, name, color, texture })),
+  ).map(([id, name, texture, natural]): PaintDef => ({
+    kind: 'paint', group: 'finishes', id: `finish-${id}`, name, color: null, coat: 'finish',
+    ...(texture ? { texture } : {}), ...(natural !== undefined ? { natural } : {}),
+  })),
 
   // Fences
   fence('picket-fence', 'Picket fence', 0xf8fafc, { height: 16, post: 0xe5e7eb, rails: [5, 11], pickets: 5, panel: null }),
@@ -2092,6 +2100,21 @@ const FLOATING: ReadonlySet<string> = new Set(['lily-pads', 'reeds', 'stepping-s
 export const floats = (id: string): boolean => FLOATING.has(id);
 export const getWallStyle = (id: string) => getOfKind('wall', id);
 export const getPaint = (id: string) => getOfKind('paint', id);
+export const isFinish = (id: string): boolean => getItem(id).kind === 'paint' && getPaint(id).coat === 'finish';
+// The finishes of the first build of #11b were paints with a fixed color. Older saves and blueprints that
+// hold one read it as that finish plus the closest paint (null: Plain)
+export const OLD_FINISHES: Readonly<Record<string, readonly [string, string | null]>> = {
+  'paint-brushed': ['finish-brushed', null],
+  'paint-red-brick': ['finish-brick', null],
+  'paint-white-brick': ['finish-brick', 'paint-white'],
+  'paint-stonework': ['finish-stone', null],
+  'paint-block': ['finish-block', null],
+  'paint-wood': ['finish-wood', null],
+  'paint-wainscot': ['finish-wainscot', 'paint-cream'],
+  'paint-tiles': ['finish-tiles', 'paint-white'],
+  'paint-stripes': ['finish-stripes', 'paint-sage'],
+  'paint-diamonds': ['finish-diamonds', 'paint-rose'],
+};
 // Walls take paint (on glass it tints the pane); fences do not
 export const isPaintable = (styleId: string): boolean => getWallStyle(styleId).fence === undefined && getWallStyle(styleId).pole === undefined;
 export const isPole = (styleId: string): boolean => getWallStyle(styleId).pole !== undefined;
