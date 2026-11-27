@@ -89,6 +89,7 @@ Run `./check.sh` after every change and keep going until it says `ALL GREEN`. Do
 4. `python3 tools/publish_plan.py --record <new version>` with the version the publish returned.
 5. Add a Done row to `Todos.md` and write it to the project doc "Todos".
 6. Add the todo to "Waiting to be logged" in `CHANGELOG.md` (also the project doc "claude/Changelog"). Move it into the Log only when Deta says it is ready (it may be done but buggy, or not as wished): a short player-facing entry under that day's date, with the todo numbers. Write both docs after every change.
+7. Before suggesting the next todo, check "Waiting to be logged" and remind Deta of anything still waiting there, so it can be logged first.
 
 ## Working as a helper
 
