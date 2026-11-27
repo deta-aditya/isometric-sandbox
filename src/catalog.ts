@@ -7,6 +7,7 @@
 //   opening: click a wall segment to put a door, window or arch in it
 import { type Box, boxDrawsBefore } from './depthSort';
 import type { Cell } from './geometry';
+import type { WallTextureId } from './render/wallTextures';
 
 // Two levels of grouping: categories (bottom bar) contain groups (tabs in the tray).
 export type CategoryId = 'scenery' | 'furniture' | 'flooring' | 'terrain' | 'building';
@@ -47,6 +48,7 @@ export type GroupId =
   | 'fences'
   | 'gates'
   | 'paints'
+  | 'finishes'
   | 'floors'
   | 'grass'
   | 'ground';
@@ -122,6 +124,7 @@ export const CATEGORIES: readonly Category[] = [
     groups: [
       { id: 'walls', name: 'Walls' },
       { id: 'paints', name: 'Paints' }, // next to Walls: paints go on walls
+      { id: 'finishes', name: 'Finishes' }, // textured paints (#11b)
       { id: 'doors', name: 'Doors' },
       { id: 'windows', name: 'Windows' },
       { id: 'arches', name: 'Arches' },
@@ -206,7 +209,7 @@ export type CulvertPiece = 'outlet' | 'inlet';
 export type CulvertDef = Base & Readonly<{ kind: 'culvert'; piece?: CulvertPiece }>;
 // Paint is a color layer on one side of a wall, over the wall's material. A null color is Plain:
 // it strips the paint so the side shows its material again.
-export type PaintDef = Base & Readonly<{ kind: 'paint'; color: number | null }>;
+export type PaintDef = Base & Readonly<{ kind: 'paint'; color: number | null; texture?: WallTextureId }>;
 // `floor` is the tile laid automatically when walls of this style close off a room
 // A fence is a wall style with a fence look. It is built like a wall but never forms a room, stays low
 // whatever the wall view, and takes gates instead of doors and windows. The look is plain data that one
@@ -1815,6 +1818,21 @@ const ITEMS: readonly CatalogItem[] = [
       ['charcoal', 'Charcoal', 0x374151],
     ] as const
   ).map(([id, name, color]): PaintDef => ({ kind: 'paint', group: 'paints', id: `paint-${id}`, name, color })),
+  // Finishes: paints with a texture drawn on the wall face (#11b)
+  ...(
+    [
+      ['brushed', 'Brush painted', 0xd6c3a1, 'brushed'],
+      ['red-brick', 'Red brickwork', 0xa6452e, 'brick'],
+      ['white-brick', 'White brickwork', 0xe7e2d8, 'brick'],
+      ['stonework', 'Stonework', 0xa8a294, 'stone'],
+      ['block', 'Concrete block', 0xa3a3a0, 'block'],
+      ['wood', 'Wood panels', 0xb07a48, 'boards'],
+      ['wainscot', 'Wainscot', 0xf1e6cc, 'wainscot'],
+      ['tiles', 'White tiles', 0xeef2f3, 'tiles'],
+      ['stripes', 'Striped paper', 0x8fae9a, 'stripes'],
+      ['diamonds', 'Diamond paper', 0xb98a9a, 'diamonds'],
+    ] as const
+  ).map(([id, name, color, texture]): PaintDef => ({ kind: 'paint', group: 'finishes', id: `paint-${id}`, name, color, texture })),
 
   // Fences
   fence('picket-fence', 'Picket fence', 0xf8fafc, { height: 16, post: 0xe5e7eb, rails: [5, 11], pickets: 5, panel: null }),

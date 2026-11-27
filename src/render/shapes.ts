@@ -4,6 +4,8 @@ import type { ArchLook, FenceLook, GlassLook, OpeningLook, PoleLook, Shape } fro
 import { WALL_T } from '../config';
 import type { Rect } from '../geometry';
 import { toScreen } from '../geometry';
+import { clip } from './diagonals';
+import { WALL_TEXTURES, type WallTextureId } from './wallTextures';
 
 export const shade = (c: number, f: number): number =>
   ((((c >> 16) & 255) * f) << 16) | ((((c >> 8) & 255) * f) << 8) | (((c & 255) * f) | 0);
@@ -209,6 +211,9 @@ export type WallPiece = Readonly<{
   tint?: number; // a highlight (hover, bulldoze, ghost) that recolors everything, the arch included
   // set for pole walls: which ends get a post (every 2 tiles along a run, plus run ends and corners)
   pole?: Readonly<{ look: PoleLook; posts: readonly [boolean, boolean] }>;
+  // a textured paint (#11b) on the face the camera sees: s0 is the segment's world start along its line,
+  // dir whether the view runs the same way along it, line a key for the world line it lies on
+  texture?: Readonly<{ id: WallTextureId; s0: number; dir: 1 | -1; line: number }>;
 }>;
 
 // A box along an edge: `from`..`to` in tile units along it, z..zTop in pixels, `t` thick across it
@@ -381,9 +386,28 @@ export const drawWall = (g: Graphics, wall: WallPiece): void => {
     bar(0.96, 1, 0, top);
   };
 
+  // The texture's marks on the face the camera sees, clipped to the parts of the face that are wall
+  // (around an opening, below a cut-down top). Marks take the face's shade, like the slab under them.
+  const texture = (parts: readonly (readonly [number, number, number, number])[]) => {
+    const t = wall.texture;
+    if (!t) return;
+    const face = wall.axis === 'x' ? 0.75 : 0.55;
+    const at = (a: number, z: number): P3 => (wall.axis === 'x' ? [wall.x + a, wall.y + WALL_T / 2, z] : [wall.x + WALL_T / 2, wall.y + a, z]);
+    WALL_TEXTURES[t.id](t.s0, t.line, top, wall.color).forEach((m) => {
+      const pts = m.pts.map(([s, z]) => [t.dir === 1 ? s - t.s0 : t.s0 + 1 - s, z] as const);
+      parts.forEach(([a0, a1, z0, z1]) => {
+        const zTop = Math.min(z1, top);
+        if (zTop <= z0 || a1 <= a0) return;
+        const piece = clip(pts, [[a0, z0], [a1, z0], [a1, zTop], [a0, zTop]]);
+        if (piece.length >= 3) poly(g, piece.map(([a, z]) => at(a, z)), shade(m.color, face), pane * (m.alpha ?? 1));
+      });
+    });
+  };
+
   const o = wall.opening;
   if (!o) {
     slab(0, 1, 0, top);
+    texture([[0, 1, 0, top]]);
     return frame();
   }
   // Wall all around the hole, then whatever fills the hole (door leaf, glass, or nothing)
@@ -392,6 +416,7 @@ export const drawWall = (g: Graphics, wall: WallPiece): void => {
   if (o.fill) slab(o.from, o.to, o.bottom, o.top, o.fill.color, wall.alpha * o.fill.alpha, WALL_T * 0.5);
   slab(o.from, o.to, o.top, top);
   slab(o.to, 1, 0, top);
+  texture([[0, o.from, 0, top], [o.from, o.to, 0, o.bottom], [o.from, o.to, o.top, top], [o.to, 1, 0, top]]);
   frame();
 };
 

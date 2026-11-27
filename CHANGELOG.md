@@ -9,7 +9,7 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 ## Waiting to be logged
 
 Finished, not yet confirmed by Deta:
-- (nothing waiting)
+- #11b Wall finishes: a Finishes tab with 10 textured paints (Brush painted, brickwork, stonework, concrete block, wood panels, wainscot, tiles, wallpapers) (2026-11-27)
 
 ## Log
 

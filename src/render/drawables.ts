@@ -5,6 +5,7 @@ import { CANAL_DEPTH, CUT_WALL_H, STREAM_SINK, TILE_H, TILE_W, WALL_H } from '..
 import { depthSort } from '../depthSort';
 import { type Cell, type Edge, type Rect, cellKey, cellsOf, edgeKey, edgeRect } from '../geometry';
 import type { WallPiece } from './shapes';
+import { pointFromView, sizeInView } from '../view';
 import {
   type ObjectPlacement,
   type State,
@@ -94,7 +95,10 @@ const wallLooks = (state: State): ReadonlyMap<string, WallLook> => {
   const paint = paintPlan(state);
   paint?.targets
     .filter((t) => t.side === 'after')
-    .forEach(({ wall }) => tint(wall, faceColor({ ...wall, paint: { ...wall.paint, after: storedPaint(paint.paintId) } })));
+    .forEach(({ wall }) => {
+      const at = looks.get(edgeKey(wall))?.wall ?? wall;
+      looks.set(edgeKey(wall), { wall: { ...at, paint: { ...at.paint, after: storedPaint(paint.paintId) } }, alpha: 1 });
+    });
 
   if (state.tool === 'build' && item.kind === 'wall') {
     // Ghost walls for the run or room being dragged (they take the new style, keeping any opening)
@@ -127,6 +131,21 @@ export const faceColor = (wall: WallSegment): number => {
   return style.glass ? mix(style.color, paint, GLASS_TINT) : paint;
 };
 const GLASS_TINT = 0.75;
+
+// A textured paint on the face the camera sees, placed by the wall's world line (#11b): the segment's
+// start along that line, whether the view runs the same way, and a key for the line
+const textureOf = (state: State, wall: WallSegment): Pick<WallPiece, 'texture'> => {
+  const id = wall.paint.after ? getPaint(wall.paint.after).texture : undefined;
+  const style = getWallStyle(wall.styleId);
+  if (!id || style.fence || style.pole) return {};
+  const world = sizeInView(state.size, state.view);
+  const a = pointFromView({ x: wall.x, y: wall.y }, state.view, world);
+  const b = pointFromView(wall.axis === 'x' ? { x: wall.x + 1, y: wall.y } : { x: wall.x, y: wall.y + 1 }, state.view, world);
+  const alongX = a.y === b.y;
+  const [sa, sb] = alongX ? [a.x, b.x] : [a.y, b.y];
+  const line = (alongX ? a.y : a.x) * 2 + (alongX ? 0 : 1);
+  return { texture: { id, s0: Math.min(sa, sb), dir: sb > sa ? 1 : -1, line } };
+};
 const TINTED_ALPHA = 0.6; // clear glass is 0.35; a tinted pane is a little denser so its color reads
 
 // A pane drawn in any color but the glass's own (a paint, or a preview) is tinted
@@ -227,6 +246,7 @@ export const buildDrawables = (state: State, win: ScreenWindow | null = null) =>
     fence: fenceLook(wall.styleId, color),
     tint: color,
     glass: glassLook(wall.styleId, color ?? faceColor(wall)),
+    ...(color === undefined ? textureOf(state, wall) : {}),
     ...(isPole(wall.styleId) ? { pole: { look: getWallStyle(wall.styleId).pole!, posts: polePosts(wall, byEdge, ends) } } : {}),
   }));
 

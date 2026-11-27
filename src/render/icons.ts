@@ -1,5 +1,6 @@
 // Icons are rendered from the catalog with the same drawing code as the game,
 // so every item (including new ones) gets an icon that matches what gets placed.
+import type { WallTextureId } from './wallTextures';
 import { Container, Graphics, type Renderer } from 'pixi.js';
 import { CATALOG, type CatalogItem, type OpeningDef, type OpeningLook, type TileDef, getOpeningDef, getTileDef, getWallStyle, isPiece } from '../catalog';
 import { CUT_WALL_H, WALL_H } from '../config';
@@ -145,10 +146,11 @@ const wallCorner = (g: Graphics, styleId: string): void => {
 };
 
 // A paint: a corner of plaster wall in that color (Plain shows the bare plaster)
-const paintPreview = (g: Graphics, color: number | null): void => {
+const paintPreview = (g: Graphics, color: number | null, texture?: WallTextureId): void => {
   patch(g, 1, 1, GRASS);
-  drawWall(g, piece('plaster', 'x', 0, 1, WALL_H, null, color ?? undefined));
-  drawWall(g, piece('plaster', 'y', 1, 0, WALL_H, null, color ?? undefined));
+  const look = (line: number) => (texture ? { texture: { id: texture, s0: 0, dir: 1 as const, line } } : {});
+  drawWall(g, { ...piece('plaster', 'x', 0, 1, WALL_H, null, color ?? undefined), ...look(2) });
+  drawWall(g, { ...piece('plaster', 'y', 1, 0, WALL_H, null, color ?? undefined), ...look(3) });
 };
 
 // One wall segment showing the opening, seen from the front; a gate hangs in a picket fence
@@ -193,7 +195,7 @@ const drawPreview = (g: Graphics, item: CatalogItem): Container | void => {
     case 'culvert':
       return item.piece ? jointPatch(g, item.piece) : culvertPatch(g);
     case 'paint':
-      return paintPreview(g, item.color);
+      return paintPreview(g, item.color, item.texture);
     case 'terrain':
       return terrainPatch(g, item.color, item.specks);
     case 'tile':
