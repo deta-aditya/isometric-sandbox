@@ -28,7 +28,7 @@ let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
 // ===== Catalog =====
 assert.ok(isTerrain('lush-grass') && isTerrain('soil-dirt') && !isTerrain('dirt') && !isTerrain('stone'));
-assert.equal(getItem('soil-dirt').name, 'Dirt');
+assert.equal(getItem('soil-dirt').name, 'Soil');
 assert.equal(getItem('dirt').kind, 'tile'); // the path keeps its id
 assert.throws(() => getItem('gravel'));
 assert.throws(() => getItem('sand'));

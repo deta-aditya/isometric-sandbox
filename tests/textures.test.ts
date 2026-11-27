@@ -32,7 +32,7 @@ const dist = (a: number, b: number) => Math.hypot(...lab(a).map((v, i) => v - la
 {
   const paths = itemsIn('paths').map((i) => i.id);
   assert.equal(paths[paths.indexOf('running-track') + 1], 'overgrown-path');
-  assert.equal(getTileDef('overgrown-path').name, 'Overgrown path');
+  assert.equal(getTileDef('overgrown-path').name, 'Overgrown');
   const floors = itemsIn('floors').map((i) => i.id);
   assert.equal(floors[floors.indexOf('turf-grass') + 1], 'turf-grass-dark');
   assert.equal(getTileDef('turf-grass').name, 'Turf grass light');
@@ -163,7 +163,7 @@ const NEW_PATHS = ['crazy-paving', 'leafy-dirt', 'diamond-plate', 'steel-grating
 {
   const paths = itemsIn('paths').map((i) => i.id);
   assert.deepEqual(paths.slice(-7), ['overgrown-path', ...NEW_PATHS]);
-  assert.deepEqual(NEW_PATHS.map((id) => getTileDef(id).name), ['Crazy paving', 'Leafy dirt path', 'Diamond plate', 'Steel grating', 'Perforated metal', 'Rusty steel']);
+  assert.deepEqual(NEW_PATHS.map((id) => getTileDef(id).name), ['Crazy paving', 'Leafy dirt', 'Diamond plate', 'Steel grating', 'Perforated metal', 'Rusty steel']);
   NEW_PATHS.forEach((id) => { assert.ok(getTileDef(id).name.length <= 16); assert.ok(PATTERNS[id], id); });
   // each stands apart from every other ground by color, the leafy path aside: it is the dirt path's earth
   const grounds = CATALOG.filter((i) => i.kind === 'tile' || i.kind === 'terrain').map((i) => [i.id, (i as { color: number }).color] as const);
@@ -217,3 +217,13 @@ ok('leafy dirt: muted yellow and green leaves, mostly green, unbroken across til
   }
 }
 ok('metal paths take diagonal edges');
+
+// Path names carry no "path" (Deta's call): Stone, Dirt, Overgrown, Leafy dirt; the Dirt terrain is
+// named Soil so the two never share a name. Ids are unchanged, so saves and blueprints still load
+{
+  assert.ok(itemsIn('paths').every((i) => !/path/i.test(i.name)), 'no path name says "path"');
+  assert.deepEqual(['stone', 'dirt', 'overgrown-path', 'leafy-dirt', 'soil-dirt'].map((id) => CATALOG.find((i) => i.id === id)!.name), ['Stone', 'Dirt', 'Overgrown', 'Leafy dirt', 'Soil']);
+  const names = CATALOG.filter((i) => i.kind === 'tile' || i.kind === 'terrain').map((i) => i.name);
+  assert.equal(new Set(names).size, names.length, 'no two grounds share a name');
+}
+ok('path names drop "path"; the Dirt terrain is Soil');
