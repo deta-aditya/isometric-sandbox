@@ -199,7 +199,140 @@ export const fringe = (wx: number, wy: number, [a, b]: readonly [readonly [numbe
 
 // floors whose edges blend into the ground: grass creeps in over every edge facing bare ground, and
 // those edges take the lawn's grid line instead of a darker shade of the floor
-export const BLENDS_INTO_GROUND: ReadonlySet<string> = new Set(['dirt']);
+export const BLENDS_INTO_GROUND: ReadonlySet<string> = new Set(['dirt', 'leafy-dirt']);
+
+// Crazy paving: irregular stones of every size and angle in mortar. The stones are the Voronoi cells of
+// points jittered on a world lattice (3 per tile each way), so a stone cut by a tile edge carries on into
+// the next tile with the same outline and shade
+const CP_N = 3;
+const crazySite = (gx: number, gy: number): readonly [number, number] =>
+  [(gx + 0.15 + hash(gx, gy, 311) * 0.7) / CP_N, (gy + 0.15 + hash(gx, gy, 312) * 0.7) / CP_N];
+const halfPlaneClip = (poly: (readonly [number, number])[], px: number, py: number, nx: number, ny: number): (readonly [number, number])[] => {
+  // keep the side where (p - P) . n <= 0
+  const out: (readonly [number, number])[] = [];
+  const d = (q: readonly [number, number]) => (q[0] - px) * nx + (q[1] - py) * ny;
+  poly.forEach((a, i) => {
+    const b = poly[(i + 1) % poly.length]!;
+    const da = d(a), db = d(b);
+    if (da <= 0) out.push(a);
+    if ((da < 0 && db > 0) || (da > 0 && db < 0)) { const t = da / (da - db); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  });
+  return out;
+};
+const crazyPaving: Pattern = (wx, wy, color) => {
+  const out: PatternMark[] = [rect(0, 0, 1, 1, shade(color, 0.66))];
+  const gap = 0.022;
+  for (let gx = wx * CP_N - 1; gx <= wx * CP_N + CP_N; gx++) for (let gy = wy * CP_N - 1; gy <= wy * CP_N + CP_N; gy++) {
+    const [sx, sy] = crazySite(gx, gy);
+    let cell: (readonly [number, number])[] = [[wx - 0.5, wy - 0.5], [wx + 1.5, wy - 0.5], [wx + 1.5, wy + 1.5], [wx - 0.5, wy + 1.5]];
+    for (let ox = -2; ox <= 2 && cell.length; ox++) for (let oy = -2; oy <= 2 && cell.length; oy++) {
+      if (ox === 0 && oy === 0) continue;
+      const [tx, ty] = crazySite(gx + ox, gy + oy);
+      const nx = tx - sx, ny = ty - sy, len = Math.hypot(nx, ny);
+      // the bisector moved toward this site by half the mortar gap
+      const mx = (sx + tx) / 2 - (nx / len) * gap, my = (sy + ty) / 2 - (ny / len) * gap;
+      cell = halfPlaneClip(cell, mx, my, nx / len, ny / len);
+    }
+    if (cell.length < 3) continue;
+    const t = hash(gx, gy, 313) - 0.5;
+    const c = t > 0 ? lighten(color, t * 0.3) : shade(color, 1 + t * 0.3);
+    out.push({ pts: cell.map(([x, y]) => [x - wx, y - wy] as const), color: c });
+  }
+  return out;
+};
+
+// A lens: a pointed oval at an angle, half-length len and half-width len * fat (leaves, diamond plate lugs)
+const lens = (cu: number, cv: number, len: number, angle: number, color: number, fat = 0.42, alpha = 1): PatternMark => {
+  const n = 10, ca = Math.cos(angle), sa = Math.sin(angle);
+  return { pts: Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * Math.PI * 2;
+    // pointed at both ends: the width falls off toward the tips
+    const x = Math.cos(a) * len, y = Math.sin(a) * len * fat * Math.abs(Math.sin(a)) ** 0.4;
+    return [cu + x * ca - y * sa, cv + x * sa + y * ca] as const;
+  }), color, alpha };
+};
+// Leafy dirt path: the dirt path almost covered by fallen leaves, the earth showing between them. Leaves
+// belong to the world tile they fall on but reach over its edges, so the tiles around lend theirs too and
+// a leaf is never cut at a tile edge; overlaps stack in one order everywhere. Muted colors, more greens
+// than yellows (picked evenly, so the list sets the mix: 3 yellows, 5 greens)
+const LEAVES = [0xd6c467, 0xc7b158, 0xb5a352, 0xa8b25e, 0x8fa553, 0x7a974c, 0x667f48, 0x8aa36a] as const;
+const LEAVES_PER_TILE = 40;
+const leavesOf = (tx: number, ty: number) =>
+  Array.from({ length: LEAVES_PER_TILE }, (_, i) => ({
+    u: tx + hash(tx, ty, 121 + i * 5), v: ty + hash(tx, ty, 122 + i * 5),
+    len: 0.08 + hash(tx, ty, 123 + i * 5) * 0.05, a: hash(tx, ty, 124 + i * 5) * Math.PI,
+    c: LEAVES[Math.floor(hash(tx, ty, 125 + i * 5) * LEAVES.length)]!, order: hash(tx, ty, 126 + i * 5),
+  }));
+const leafyDirt: Pattern = (wx, wy, color, near) => {
+  const leaves = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => leavesOf(wx + dx, wy + dy)))
+    .filter((l) => l.u > wx - l.len && l.u < wx + 1 + l.len && l.v > wy - l.len && l.v < wy + 1 + l.len)
+    .sort((a, b) => a.order - b.order);
+  return [...dirtPath(wx, wy, color, near), ...leaves.map((l) => lens(l.u - wx, l.v - wy, l.len, l.a, l.c, 0.48))];
+};
+
+// Diamond plate: tread plate with small raised lugs, 7 by 7 per tile
+const diamondPlate: Pattern = (wx, wy, color) => {
+  const out: PatternMark[] = [rect(0, 0, 1, 0.02, shade(color, 0.8)), rect(0, 0, 0.02, 1, shade(color, 0.8))];
+  // lugs on a square lattice, each turned a quarter from its neighbors, lying along the plate's edges so
+  // they slant on screen like a tread plate seen straight on; each lug is a raised lens: a shadow below,
+  // the body, a bright ridge on top
+  const n = 7, step = 1 / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const cu = (i + 0.5) * step, cv = (j + 0.5) * step;
+    const a = (i + j) % 2 === 0 ? 0 : Math.PI / 2;
+    const len = step * 0.4;
+    out.push(lens(cu + 0.008, cv + 0.008, len, a, shade(color, 0.32), 0.4));
+    out.push(lens(cu, cv, len, a, shade(color, 0.78), 0.4));
+    out.push(lens(cu - 0.004, cv - 0.004, len * 0.8, a, lighten(color, 0.7), 0.2));
+  }
+  return out;
+};
+
+// Steel grating: bars along world x tied by cross bars, with the dark gaps of the open grid between
+const steelGrating: Pattern = (_wx, _wy, color) => {
+  const out: PatternMark[] = [rect(0, 0, 1, 1, 0x1f2328)];
+  const bars = 7;
+  for (let k = 0; k < bars; k++) {
+    const v = (k + 0.5) / bars;
+    out.push(rect(0, v - 0.03, 1, v + 0.03, color));
+  }
+  for (let k = 0; k < 3; k++) {
+    const u = (k + 0.5) / 3;
+    out.push(rect(u - 0.018, 0, u + 0.018, 1, shade(color, 0.85)));
+  }
+  out.push(rect(0, 0, 1, 0.035, lighten(color, 0.15)), rect(0, 0.965, 1, 1, shade(color, 0.7)));
+  return out;
+};
+
+// Perforated metal: a plate with rows of round holes, offset row to row
+const perforated: Pattern = (_wx, wy, color) => {
+  const out: PatternMark[] = [];
+  const n = 6;
+  for (let j = 0; j < n; j++) {
+    const off = ((j + wy * n) % 2) * 0.5;
+    for (let i = 0; i < n; i++) {
+      const cu = (i + 0.25 + off) / n, cv = (j + 0.5) / n;
+      if (cu > 1 - 0.03) continue;
+      out.push(blob(cu, cv, 0.035, 8, 0x2a2f35));
+    }
+  }
+  out.push(rect(0, 0, 1, 0.015, shade(color, 0.75)), rect(0, 0, 0.015, 1, shade(color, 0.75)));
+  return out;
+};
+
+// Rusty steel: weathered plates (two per tile) with blotches of darker and brighter rust and a rivet
+// at each plate corner
+const rustySteel: Pattern = (wx, wy, color) => {
+  const out: PatternMark[] = [];
+  for (let i = 0; i < 9; i++) {
+    const c = hash(wx, wy, 200 + i) < 0.5 ? shade(color, 0.82) : lighten(color, 0.12);
+    out.push(blob(hash(wx, wy, 210 + i), hash(wx, wy, 220 + i), 0.06 + hash(wx, wy, 230 + i) * 0.12, 9, c, 0.55));
+  }
+  out.push(rect(0, 0.49, 1, 0.51, shade(color, 0.6)), rect(0, 0, 1, 0.02, shade(color, 0.6)), rect(0, 0, 0.02, 1, shade(color, 0.6)));
+  [[0.08, 0.08], [0.92, 0.08], [0.08, 0.42], [0.92, 0.42], [0.08, 0.58], [0.92, 0.58], [0.08, 0.92], [0.92, 0.92]].forEach(([u, v]) =>
+    out.push(blob(u!, v!, 0.022, 6, lighten(color, 0.22))));
+  return out;
+};
 
 export const PATTERNS: Readonly<Record<string, Pattern>> = {
   // floors
@@ -226,4 +359,10 @@ export const PATTERNS: Readonly<Record<string, Pattern>> = {
   'red-brick': bricks(4, 0.04),
   cobblestone: cobbles,
   'overgrown-path': overgrown,
+  'crazy-paving': crazyPaving,
+  'leafy-dirt': leafyDirt,
+  'diamond-plate': diamondPlate,
+  'steel-grating': steelGrating,
+  'perforated-metal': perforated,
+  'rusty-steel': rustySteel,
 };

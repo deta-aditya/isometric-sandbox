@@ -1,7 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { CATALOG, getTileDef, itemsIn } from '../src/catalog.ts';
 import { type FloorPiece, type WorldTile, floorPieces, isPlain } from '../src/render/floors.ts';
-import { PATTERNS } from '../src/render/patterns.ts';
+import { clip } from '../src/render/diagonals.ts';
+import { BLENDS_INTO_GROUND, PATTERNS } from '../src/render/patterns.ts';
 import { GRID_LINE } from '../src/render/shapes.ts';
 let n = 0; const ok = (m: string) => console.log(`ok ${++n} - ${m}`);
 
@@ -30,7 +31,7 @@ const dist = (a: number, b: number) => Math.hypot(...lab(a).map((v, i) => v - la
 // ===== Items (#11) =====
 {
   const paths = itemsIn('paths').map((i) => i.id);
-  assert.equal(paths.at(-1), 'overgrown-path');
+  assert.equal(paths[paths.indexOf('running-track') + 1], 'overgrown-path');
   assert.equal(getTileDef('overgrown-path').name, 'Overgrown path');
   const floors = itemsIn('floors').map((i) => i.id);
   assert.equal(floors[floors.indexOf('turf-grass') + 1], 'turf-grass-dark');
@@ -43,9 +44,10 @@ const dist = (a: number, b: number) => Math.hypot(...lab(a).map((v, i) => v - la
   assert.ok(grounds.filter(([id]) => id !== 'turf-grass-dark').every(([, c]) => dist(dark, c) > 12), 'dark turf apart from every ground');
   // the overgrown path is old stone: related to the Stone path on purpose, apart from the rest
   const og = getTileDef('overgrown-path').color;
-  assert.ok(grounds.filter(([id]) => !['overgrown-path', 'stone'].includes(id)).every(([, c]) => dist(og, c) > 14));
+  assert.ok(grounds.filter(([id]) => !['overgrown-path', 'stone', 'crazy-paving'].includes(id)).every(([, c]) => dist(og, c) > 14));
+  assert.ok(dist(og, getTileDef('crazy-paving').color) > 10, 'and apart from the crazy paving, another stone');
 }
-ok('Overgrown path ends the Paths tab; Turf grass light (same id) and Turf grass dark sit side by side');
+ok('Overgrown path follows Running track; Turf grass light (same id) and Turf grass dark sit side by side');
 
 // ===== Patterns =====
 {
@@ -59,7 +61,8 @@ ok('Overgrown path ends the Paths tab; Turf grass light (same id) and Turf grass
   for (const id of Object.keys(PATTERNS)) {
     const a = JSON.stringify(PATTERNS[id]!(5, 7, 0x888888, none));
     assert.equal(a, JSON.stringify(PATTERNS[id]!(5, 7, 0x888888, none)), id);
-    if (!['white-tile'].includes(id)) assert.notEqual(a, JSON.stringify(PATTERNS[id]!(6, 7, 0x888888, none)), `${id} varies`);
+    // regular patterns (tile grids, plates) repeat on purpose; the rest vary from tile to tile
+    if (!['white-tile', 'diamond-plate', 'steel-grating', 'perforated-metal'].includes(id)) assert.ok(a !== JSON.stringify(PATTERNS[id]!(6, 7, 0x888888, none)), `${id} varies`);
   }
   // drawn marks never leave their piece
   const ps = world(['ww.dd', 'bb.oo', 'cc.tt'], { w: 'wood-floor', d: 'dirt', b: 'red-brick', o: 'overgrown-path', c: 'cobblestone', t: 'terrazzo' });
@@ -154,3 +157,63 @@ ok('only one path type joins itself diagonally; floors stay square');
   assert.ok(fringeOf(mid) >= 2);
 }
 ok('the dirt path grows grass on edges facing bare ground, straight or diagonal, and nowhere else');
+
+// ===== More paths: Crazy paving, Leafy dirt path and four metal paths =====
+const NEW_PATHS = ['crazy-paving', 'leafy-dirt', 'diamond-plate', 'steel-grating', 'perforated-metal', 'rusty-steel'];
+{
+  const paths = itemsIn('paths').map((i) => i.id);
+  assert.deepEqual(paths.slice(-7), ['overgrown-path', ...NEW_PATHS]);
+  assert.deepEqual(NEW_PATHS.map((id) => getTileDef(id).name), ['Crazy paving', 'Leafy dirt path', 'Diamond plate', 'Steel grating', 'Perforated metal', 'Rusty steel']);
+  NEW_PATHS.forEach((id) => { assert.ok(getTileDef(id).name.length <= 16); assert.ok(PATTERNS[id], id); });
+  // each stands apart from every other ground by color, the leafy path aside: it is the dirt path's earth
+  const grounds = CATALOG.filter((i) => i.kind === 'tile' || i.kind === 'terrain').map((i) => [i.id, (i as { color: number }).color] as const);
+  NEW_PATHS.filter((id) => id !== 'leafy-dirt').forEach((id) =>
+    grounds.filter(([o]) => o !== id).forEach(([o, c]) => assert.ok(dist(getTileDef(id).color, c) > 8.5, `${id} vs ${o}`)));
+}
+ok('six more paths end the Paths tab, each with a pattern and a color of its own');
+{
+  // crazy paving: a stone over a tile edge is the same stone, outline and shade, in the tile beside it
+  const left = PATTERNS['crazy-paving']!(4, 4, 0xb9a58c, () => undefined), right = PATTERNS['crazy-paving']!(5, 4, 0xb9a58c, () => undefined);
+  // compared where they meet: each stone cut to a strip either side of the edge (each tile works out its
+  // stones within reach of itself, so far parts may differ, never the parts near the edge)
+  const strip = [[0.8, -0.2], [1.2, -0.2], [1.2, 1.2], [0.8, 1.2]] as const;
+  const key = (m: (typeof left)[number], du: number) =>
+    `${m.color}:${clip(m.pts.map(([u, v]) => [u + du, v] as const), strip).map(([u, v]) => `${u.toFixed(5)},${v.toFixed(5)}`).sort().join(' ')}`;
+  const across = left.slice(1).filter((m) => m.pts.some(([u]) => u > 1) && m.pts.some(([u]) => u < 1));
+  assert.ok(across.length >= 2);
+  const there = new Set(right.slice(1).map((m) => key(m, 1)));
+  across.forEach((m) => assert.ok(there.has(key(m, 0)), 'the same stone on the other side'));
+}
+ok('crazy paving stones carry on across tile edges');
+{
+  // leafy dirt: leaves in muted yellows and greens only, more greens than yellows, nearly covering the
+  // earth; a leaf over a tile edge is drawn by both tiles; it grows grass at its edges like the dirt path
+  const marks = PATTERNS['leafy-dirt']!(3, 3, getTileDef('leafy-dirt').color, () => 'leafy-dirt');
+  const leaves = marks.filter((m) => m.pts.length === 10);
+  assert.ok(leaves.length >= 40);
+  const hue = (c: number) => {
+    const [r, g, b] = [(c >> 16) & 255, (c >> 8) & 255, c & 255].map((x) => x / 255) as [number, number, number];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: (h * 60 + 360) % 360, s: mx === 0 ? 0 : d / mx };
+  };
+  const tones = new Set(leaves.map((m) => m.color));
+  tones.forEach((c) => { const { h, s } = hue(c); assert.ok(h >= 45 && h <= 110 && s < 0.6, `leaf ${c.toString(16)} is a muted yellow or green`); });
+  const greens = [...tones].filter((c) => hue(c).h > 62).length;
+  assert.ok(greens > tones.size - greens, 'more greens than yellows');
+  const at = (m: (typeof marks)[number]) => m.pts.reduce((s, [u, v]) => [s[0] + u / m.pts.length, s[1] + v / m.pts.length], [0, 0]);
+  const overEdge = leaves.filter((m) => m.pts.some(([u]) => u > 1) && m.pts.some(([u]) => u < 1));
+  const next = PATTERNS['leafy-dirt']!(4, 3, getTileDef('leafy-dirt').color, () => 'leafy-dirt').filter((m) => m.pts.length === 10);
+  overEdge.forEach((m) => { const [u, v] = at(m); assert.ok(next.some((o) => { const [ou, ov] = at(o); return Math.abs(ou + 1 - u) < 1e-9 && Math.abs(ov - v) < 1e-9; })); });
+  assert.ok(BLENDS_INTO_GROUND.has('leafy-dirt'));
+}
+ok('leafy dirt: muted yellow and green leaves, mostly green, unbroken across tile edges, grassy edges');
+{
+  // metal paths take diagonal edges like every path
+  for (const id of ['diamond-plate', 'steel-grating', 'perforated-metal', 'rusty-steel']) {
+    const ps = world(['m..', '.m.', '..m'], { m: id });
+    assert.equal(pieceAt(ps, 1, 1)[0]!.outline.length, 6, id);
+    assert.equal(ps.filter((p) => p.outline.length === 3).length, 4, id);
+  }
+}
+ok('metal paths take diagonal edges');

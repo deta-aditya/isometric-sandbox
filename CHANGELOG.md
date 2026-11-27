@@ -15,6 +15,7 @@ Finished, not yet confirmed by Deta:
 - #36, #42 Gym, Dorm and Laundry furniture tabs (2026-11-26)
 - #32 Running track kit: straights, curves, start and finish lines (2026-11-26)
 - #11 Floor and path textures, Overgrown path, Turf grass dark, grassy dirt path edges, diagonal paths (2026-11-26)
+- #45 Six more paths: Crazy paving, Leafy dirt path, Diamond plate, Steel grating, Perforated metal, Rusty steel (2026-11-27)
 
 ## Log
 
