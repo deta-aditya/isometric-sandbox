@@ -9,16 +9,36 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 ## Waiting to be logged
 
 Finished, not yet confirmed by Deta:
-- #31 Narrow roads and dirt roads; 3-wide roads renamed Medium (2026-11-23)
-- #31b Road links for narrow roads, regrouped road tabs, arrows on narrow roads, Bus stop box (2026-11-23)
-- #31c Narrow corner and Dirt corner (2026-11-23)
-- #36, #42 Gym, Dorm and Laundry furniture tabs (2026-11-26)
-- #32 Running track kit: straights, curves, start and finish lines (2026-11-26)
-- #11 Floor and path textures, Overgrown path, Turf grass dark, grassy dirt path edges, diagonal paths (2026-11-26)
-- #45 Six more paths: Crazy paving, Leafy dirt, Diamond plate, Steel grating, Perforated metal, Rusty steel (2026-11-27)
-- #45b Path names without "path" (Stone, Dirt, Overgrown, Leafy dirt); the Dirt terrain is now Soil (2026-11-27)
+- (nothing waiting)
 
 ## Log
+
+### 2026-11-27: Roads, tracks, school rooms and textured ground
+
+**Roads** (#31, #31b, #31c)
+- Roads now come in three widths: Wide, Medium (the old narrow roads) and a new Narrow road with edge lines on both sides.
+- Dirt roads in packed earth, with two wheel tracks and a grassy strip; their junctions curve into each other, and Dirt to paved joins them to a paved road.
+- Links between every width: T junctions (including one that joins only the near side of a wide road), crossings and tapers, each kept in the tab of the narrower road.
+- Narrow corner and Dirt corner for the tightest turns.
+- Lane arrows sit in the middle of a narrow road's lanes and cannot go on dirt roads.
+- Bus stop box: a yellow outline with BUS that fits a bus bay, in its own Bus bay tab.
+
+**Running track** (#32)
+- A Track tab with straights you drag out, curves, a start line with lane numbers and a checkered finish line.
+- Six lanes, two runners to a tile; a full oval is 26 by 14 tiles and a mini soccer court fits in the middle.
+
+**Furniture** (#36, #42)
+- Gym: gym bench, wall hoop, gym mat, vaulting box, wall bars, balance beam, scoreboard and ball cart.
+- Dorm: bunk bed, single bed, wardrobe, study desk, desk chair, nightstand, wall shelf, locker row and waste basket.
+- Laundry: washer, dryer, laundry desk, ironing stand and laundry rack.
+
+**Floors and paths** (#11, #45, #45b)
+- Every floor and path now has a texture: wood planks, stone slabs, tile grout, marble veins, terrazzo chips, brick, cobbles, concrete slabs, and fine grain on asphalt, carpets and turf. Patterns keep their direction when you turn the camera.
+- Paths follow diagonals: lay them in steps and they get clean 45 degree edges.
+- The Dirt path blends into the grass, with grass creeping in at its edges.
+- New paths: Overgrown, Crazy paving, Leafy dirt, Diamond plate, Steel grating, Perforated metal and Rusty steel.
+- Turf grass now comes in light and dark, for mowing stripes by hand.
+- Path names are shorter (Stone, Dirt, Overgrown, Leafy dirt), and the Dirt terrain is now called Soil.
 
 ### 2026-11-22: Everything so far
 
