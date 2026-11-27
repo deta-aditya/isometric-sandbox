@@ -9,11 +9,11 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 ## Waiting to be logged
 
 Finished, not yet confirmed by Deta:
-- #11b, #11c Wall finishes: a Finishes tab of textures (brush painted, brickwork, stonework, concrete block, wood panels, wainscot, tiles, striped and diamond wallpaper) that merge with paint, so any finish takes any color; under Plain, brick, stone, block and wood keep their natural colors (2026-11-27)
+- (nothing waiting)
 
 ## Log
 
-### 2026-11-27: Roads, tracks, school rooms and textured ground
+### 2026-11-27: Roads, tracks, school rooms, textured ground and wall finishes
 
 **Roads** (#31, #31b, #31c)
 - Roads now come in three widths: Wide, Medium (the old narrow roads) and a new Narrow road with edge lines on both sides.
@@ -39,6 +39,13 @@ Finished, not yet confirmed by Deta:
 - New paths: Overgrown, Crazy paving, Leafy dirt, Diamond plate, Steel grating, Perforated metal and Rusty steel.
 - Turf grass now comes in light and dark, for mowing stripes by hand.
 - Path names are shorter (Stone, Dirt, Overgrown, Leafy dirt), and the Dirt terrain is now called Soil.
+
+**Walls** (#11b, #11c)
+- A new Finishes tab next to Paints: Brush painted, Brickwork, Stonework, Concrete block, Wood panels, Wainscot, Tiles, Striped paper and Diamond paper.
+- Finishes and paints mix: paint a wall any color and its finish stays, so you can have painted brick or striped paper in navy. No finish takes the texture off again.
+- On plain walls, brick, stone, block and wood keep their natural colors.
+- Wainscot puts wood panelling on the lower part and the paint above it.
+- Textures carry on from one wall to the next, stop neatly around doors and windows, and look the same from every side.
 
 ### 2026-11-22: Everything so far
 
