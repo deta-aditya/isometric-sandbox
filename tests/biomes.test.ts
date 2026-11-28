@@ -40,4 +40,19 @@ const closest = fresh
   .sort((x, y) => x.d - y.d)[0]!;
 assert.ok(closest.d >= 8.5, `closest new terrain pair ${closest.pair} at ${closest.d.toFixed(1)}`);
 ok(`every new terrain keeps apart from all other grounds (closest ${closest.pair} at ${closest.d.toFixed(1)})`);
+// ===== Plants: a Scenery tab per biome (#43) =====
+{
+  const scenery = CATEGORIES.find((c) => c.id === 'scenery')!.groups.map((g) => g.id);
+  assert.deepEqual(scenery.slice(-2), ['desert', 'cold']);
+  assert.deepEqual(names('desert'), ['Saguaro cactus', 'Barrel cactus', 'Prickly pear', 'Agave', 'Joshua tree', 'Dry bush', 'Dead tree', 'Boulder']);
+  assert.deepEqual(names('cold'), ['Snowy pine', 'Snowy tall pine', 'Bare tree', 'Snowy bush', 'Snowy rock', 'Log pile', 'Snowman']);
+  [...itemsIn('desert'), ...itemsIn('cold')].forEach((i) => {
+    assert.equal(i.kind, 'object', i.id);
+    assert.ok(i.name.length <= 16, i.id);
+  });
+  // bare trees are full of branches: eight limbs, each forking into two twigs
+  const parts = (id: string) => (CATALOG.find((i) => i.id === id) as { parts: readonly unknown[] }).parts.length;
+  assert.ok(parts('dead-tree') >= 8 * 3 + 1 && parts('bare-tree') > parts('dead-tree'));
+}
+ok('Scenery has Desert (8) and Cold (7) tabs after Sports, names within 16 characters; bare trees branch');
 console.log('all passed');

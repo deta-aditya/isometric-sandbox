@@ -11,6 +11,7 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 Finished, not yet confirmed by Deta:
 - #43a Biome ground (8 Terrain tabs, 17 new terrains) and a tidier New game dialog with a Biome choice (2026-11-28)
 - #43b Grid lines take a shade of the ground under them, so they are soft on snow and sand (2026-11-28)
+- #43c Desert and Cold plant tabs: cacti, agave, Joshua tree, dry bush, dead tree, boulder; snowy pines, bare tree, snowy bush and rock, log pile, snowman (2026-11-28)
 
 ## Log
 

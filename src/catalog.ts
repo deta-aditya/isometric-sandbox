@@ -20,6 +20,8 @@ export type GroupId =
   | 'lamps'
   | 'waterside'
   | 'sports'
+  | 'desert'
+  | 'cold'
   | 'office'
   | 'canteen'
   | 'lab'
@@ -76,6 +78,8 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'lamps', name: 'Lamps' },
       { id: 'waterside', name: 'Waterside' },
       { id: 'sports', name: 'Sports' },
+      { id: 'desert', name: 'Desert' },
+      { id: 'cold', name: 'Cold' },
     ],
   },
   {
@@ -299,6 +303,44 @@ const pine = (cx: number, cy: number, r: number, z: number, height: number, colo
   [1, 0.78, 0.55].map((k, i) => {
     const rr = r * k;
     return cone(cx - rr, cy - rr, rr * 2, rr * 2, z + height * 0.27 * i, height * 0.46, i === 1 ? light : color);
+  });
+
+// A crooked limb for bare trees and dry bushes: `n` steps from (x, y, z), each moving (dx, dy) along
+// the ground and `dz` up. Each step is a box from one point to the next and exactly `dz` tall, so the
+// steps touch at their edges but never overlap (overlapping parts cannot be sorted back to front).
+// Thinner toward the tip; `snow` turns the top 1.5 px of every step white.
+const snap = (v: number): number => Math.round(v * 1024) / 1024; // exact in binary, so touching stays touching
+const limb = (x: number, y: number, z: number, dx: number, dy: number, dz: number, n: number, color: number, snow?: number, t0 = 0.06): Part[] =>
+  Array.from({ length: n }, (_, i) => {
+    const t = snap(Math.max(t0 * 0.55, t0 - i * t0 * 0.15));
+    const [xa, xb] = [snap(x + dx * i), snap(x + dx * (i + 1))];
+    const [ya, yb] = [snap(y + dy * i), snap(y + dy * (i + 1))];
+    const bz = z + dz * i;
+    const span = (p: number, q: number): readonly [number, number] =>
+      // a 1/1024 tile gap (about 0.03 px) between steps along the ground, so a step is cleanly behind or
+      // in front of the next instead of touching it on a side and the top at once
+      Math.abs(q - p) >= t ? [Math.min(p, q), Math.abs(q - p) - 1 / 1024] : [snap((p + q) / 2 - t / 2), t];
+    const [bx, w] = span(xa, xb);
+    const [by, h] = span(ya, yb);
+    return snow === undefined
+      ? [box(bx, by, w, h, bz, dz, color)]
+      : [box(bx, by, w, h, bz, dz - 1.5, color), box(bx, by, w, h, bz + dz - 1.5, 1.5, snow)];
+  }).flat();
+
+// A bare crown: limbs leaving the trunk at different heights, each forking into two shorter twigs at its
+// tip (turned 40 degrees either way; the second twig starts one twig-step higher so the two never
+// overlap), so the tree reads as branching. Each limb is [angle in degrees, reach per step, height]
+const bareCrown = (limbs: readonly (readonly [number, number, number])[], color: number, snow?: number): Part[] =>
+  limbs.flatMap(([deg, step, z]) => {
+    const a = (deg * Math.PI) / 180, n = 3, dz = 3, r = 0.075; // limbs start just outside the trunk
+    const dx = Math.cos(a) * step, dy = Math.sin(a) * step;
+    const x0 = 0.5 + Math.cos(a) * r, y0 = 0.5 + Math.sin(a) * r;
+    const tip = [x0 + dx * n, y0 + dy * n, z + dz * n] as const;
+    const twig = (turn: number, lift: number) => {
+      const b = a + (turn * Math.PI) / 180;
+      return limb(tip[0], tip[1], tip[2] + lift, Math.cos(b) * 0.06, Math.sin(b) * 0.06, 3, 2, color, snow, 0.026);
+    };
+    return [...limb(x0, y0, z, dx, dy, dz, n, color, snow, 0.045), ...twig(40, 0), ...twig(-40, 3)];
   });
 
 const flower = (cx: number, cy: number, stem: number, color: number, head: number, base = 0): Part[] => [
@@ -1270,6 +1312,116 @@ const ITEMS: readonly CatalogItem[] = [
     box(0.98, 3.03, 0.04, 2.82, 0.6, 5.7, 0x2f3439),
     box(0.98, 2.97, 0.04, 0.06, 0.6, 5.7, 0xf4f4f0),
     box(0.98, 0.15, 0.04, 5.7, 6.3, 0.7, 0xf4f4f0),
+  ]),
+
+  // Biome plants (#43): Desert
+  obj('desert', 'saguaro', 'Saguaro cactus', 1, 1, [
+    cyl(0.4, 0.4, 0.2, 0.2, 0, 66, 0x4d7c3a), // main column
+    cyl(0.43, 0.43, 0.14, 0.14, 66, 5, 0x5b8c45), // rounded top
+    box(0.47, 0.4, 0.04, 0.2, 2, 60, 0x6a9a52), // a rib catching the light
+    box(0.18, 0.45, 0.24, 0.1, 22, 9, 0x4d7c3a), // left arm: out, then up
+    cyl(0.15, 0.44, 0.12, 0.12, 22, 26, 0x4d7c3a),
+    cyl(0.165, 0.455, 0.09, 0.09, 48, 3, 0x5b8c45),
+    box(0.58, 0.45, 0.22, 0.1, 34, 8, 0x4d7c3a), // right arm, higher and shorter
+    cyl(0.74, 0.44, 0.11, 0.11, 34, 20, 0x4d7c3a),
+    cyl(0.755, 0.455, 0.08, 0.08, 54, 3, 0x5b8c45),
+  ]),
+  obj('desert', 'barrel-cactus', 'Barrel cactus', 1, 1, [
+    ...crown(0.5, 0.5, 0.22, 0, 0x3f7a35, 0x4f8c40, 0x66a34e),
+    ...[[0.42, 0.44], [0.52, 0.4], [0.47, 0.52]].map(([x = 0, y = 0]) => box(x, y, 0.07, 0.07, 19, 4, 0xfacc15)), // flowers on top
+  ]),
+  obj('desert', 'prickly-pear', 'Prickly pear', 1, 1, [
+    // flat pads standing on edge, each sitting on the one below
+    cyl(0.3, 0.45, 0.3, 0.1, 0, 18, 0x5e8c3f),
+    cyl(0.26, 0.46, 0.24, 0.08, 18, 14, 0x6a9a48),
+    cyl(0.5, 0.46, 0.18, 0.08, 18, 12, 0x5e8c3f),
+    cyl(0.62, 0.2, 0.08, 0.24, 0, 16, 0x6a9a48), // a second clump turned the other way
+    cyl(0.63, 0.22, 0.06, 0.2, 16, 12, 0x5e8c3f),
+    ...([[0.32, 0.47, 32], [0.42, 0.47, 32], [0.56, 0.47, 30], [0.63, 0.29, 28]] as const).map(([x, y, z]) => cyl(x, y, 0.05, 0.05, z, 4, 0xc0266d)), // fruit
+  ]),
+  obj('desert', 'agave', 'Agave', 1, 1, [
+    // spiky leaves in a ring around the heart, none touching another
+    ...([[0.18, 0.42], [0.64, 0.42], [0.42, 0.18], [0.42, 0.64], [0.2, 0.2], [0.64, 0.2], [0.2, 0.64], [0.64, 0.64]] as const).map(([x, y], i) =>
+      pyr(x, y, 0.16, 0.16, 0, 16 + (i % 3) * 4, i % 2 ? 0x7aa39a : 0x6b958c)),
+    cone(0.38, 0.38, 0.24, 0.24, 0, 22, 0x86b0a6), // the heart
+  ]),
+  obj('desert', 'joshua-tree', 'Joshua tree', 1, 1, [
+    cyl(0.44, 0.44, 0.12, 0.12, 0, 38, 0x7a6a4f), // shaggy trunk
+    // branches reach out from the trunk, then turn up
+    box(0.3, 0.46, 0.14, 0.07, 30, 6, 0x7a6a4f),
+    cyl(0.22, 0.44, 0.08, 0.08, 30, 18, 0x7a6a4f),
+    box(0.56, 0.46, 0.15, 0.07, 36, 6, 0x7a6a4f),
+    cyl(0.71, 0.44, 0.08, 0.08, 36, 14, 0x7a6a4f),
+    box(0.46, 0.32, 0.07, 0.12, 32, 6, 0x7a6a4f),
+    cyl(0.44, 0.24, 0.08, 0.08, 32, 22, 0x7a6a4f),
+    // spiky leaf clusters at the tips and on the trunk top
+    cone(0.15, 0.37, 0.22, 0.22, 48, 16, 0x5f7d3a),
+    cone(0.64, 0.37, 0.22, 0.22, 50, 15, 0x6b8a42),
+    cone(0.37, 0.17, 0.22, 0.22, 54, 16, 0x5f7d3a),
+    cone(0.4, 0.4, 0.2, 0.2, 38, 16, 0x6b8a42),
+  ]),
+  obj('desert', 'dry-bush', 'Dry bush', 1, 1, [
+    box(0.44, 0.44, 0.12, 0.12, 0, 4, 0x6f5b3a), // the woody base
+    // a tangle of dry twigs fanning out and up from the base, the soil showing through
+    ...[0, 33, 66, 98, 131, 164, 196, 229, 262, 295, 327].flatMap((deg, i) => {
+      const a = (deg * Math.PI) / 180;
+      return limb(0.5 + Math.cos(a) * 0.08, 0.5 + Math.sin(a) * 0.08, 2 + (i % 3) * 2, Math.cos(a) * 0.08, Math.sin(a) * 0.08, 4 + (i % 2), 4, i % 2 ? 0x9c8558 : 0x7f6942);
+    }),
+  ]),
+  obj('desert', 'dead-tree', 'Dead tree', 1, 1, [
+    cyl(0.45, 0.45, 0.1, 0.1, 0, 44, 0x8b8378), // bleached trunk, as tall as a living tree's
+    ...bareCrown([[-60, 0.04, 44], [195, 0.095, 28], [15, 0.095, 34], [105, 0.09, 24], [255, 0.09, 38], [-25, 0.09, 40], [150, 0.095, 32], [65, 0.085, 30]], 0x8b8378), // limbs all round, each forking into twigs
+  ]),
+  obj('desert', 'boulder', 'Boulder', 1, 1, [
+    pyr(0.05, 0.12, 0.9, 0.8, 0, 26, 0xb07a5a),
+    pyr(0.3, 0.06, 0.6, 0.55, 0, 34, 0xc08a68),
+    pyr(0.55, 0.5, 0.4, 0.4, 0, 14, 0x9a6a4e),
+  ]),
+
+  // Biome plants (#43): Cold
+  ...([
+    ['snowy-pine', 'Snowy pine', 0.46, 10, 76, 14],
+    ['snowy-tall-pine', 'Snowy tall pine', 0.44, 16, 102, 20],
+  ] as const).map(([id, name, r, z, height, trunk]) =>
+    obj('cold', id, name, 1, 1, [
+      cyl(0.44, 0.44, 0.12, 0.12, 0, trunk, 0x6b4423),
+      // each tier a dark cone with a white cap sharing its tip, so snow sits on every tier
+      ...[1, 0.78, 0.55].flatMap((k, i) => {
+        const rr = r * k, z0 = z + height * 0.27 * i, h = height * 0.46;
+        return [cone(0.5 - rr, 0.5 - rr, rr * 2, rr * 2, z0, h, 0x1e4d36), cone(0.5 - rr * 0.6, 0.5 - rr * 0.6, rr * 1.2, rr * 1.2, z0 + h * 0.4, h * 0.6, 0xf1f5f9)];
+      }),
+    ])),
+  obj('cold', 'bare-tree', 'Bare tree', 1, 1, [
+    cyl(0.45, 0.45, 0.1, 0.1, 0, 44, 0x4a3426),
+    ...bareCrown([[-60, 0.04, 44], [195, 0.095, 28], [15, 0.095, 34], [105, 0.09, 24], [255, 0.09, 38], [-25, 0.09, 40], [150, 0.095, 32], [65, 0.085, 30]], 0x4a3426, 0xf1f5f9), // the same branching crown, with snow along every limb
+  ]),
+  obj('cold', 'snowy-bush', 'Snowy bush', 1, 1, [
+    // three low round clumps, each with snow lying on its top, so the outline stays lumpy like a shrub
+    ...([[0.36, 0.38, 0.24], [0.62, 0.42, 0.22], [0.48, 0.64, 0.23]] as const).flatMap(([cx, cy, r]) =>
+      crown(cx, cy, r, 0, 0x1f5a3a, 0x256b45, 0x2f7a50).map((p, i) => (i === 4 ? { ...p, color: 0xf8fafc } : p))),
+  ]),
+  obj('cold', 'snowy-rock', 'Snowy rock', 1, 1, [
+    pyr(0.12, 0.18, 0.76, 0.66, 0, 20, 0x6b7280),
+    pyr(0.27, 0.3, 0.46, 0.4, 8, 12, 0xf1f5f9), // a snow cap on the top
+    pyr(0.52, 0.48, 0.36, 0.36, 0, 10, 0x4b5563),
+  ]),
+  obj('cold', 'log-pile', 'Log pile', 2, 1, [
+    ...[[0.1, 0.18, 0], [0.1, 0.48, 0], [0.1, 0.33, 7]].flatMap(([x = 0, y = 0, z = 0]) => [
+      box(x, y, 1.8, 0.28, z, 7, 0x7c4a2a), // a log lying along the pile
+      box(x + 1.8, y + 0.03, 0.02, 0.22, z + 1, 5, 0xd6a56a), // its cut end
+    ]),
+    box(0.1, 0.33, 1.8, 0.28, 14, 2, 0xf1f5f9), // snow on top
+  ]),
+  obj('cold', 'snowman', 'Snowman', 1, 1, [
+    // about as tall as a person: three balls, a short hat, a carrot nose and stick arms
+    ...crown(0.5, 0.5, 0.2, 0, 0xdbe3ec, 0xf1f5f9, 0xffffff),
+    ...crown(0.5, 0.5, 0.15, 16, 0xdbe3ec, 0xf1f5f9, 0xffffff),
+    ...crown(0.5, 0.5, 0.11, 28, 0xdbe3ec, 0xf1f5f9, 0xffffff),
+    box(0.42, 0.42, 0.16, 0.16, 37, 2, 0x111827), // hat brim
+    box(0.45, 0.45, 0.1, 0.1, 39, 6, 0x111827),
+    box(0.58, 0.48, 0.1, 0.04, 32, 3, 0xf97316), // carrot nose
+    box(0.22, 0.49, 0.14, 0.02, 23, 2, 0x5b3a29), // stick arms
+    box(0.64, 0.49, 0.14, 0.02, 23, 2, 0x5b3a29),
   ]),
 
   // Furniture: office (parts listed back to front, bottom to top)
