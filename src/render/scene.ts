@@ -160,6 +160,7 @@ export const createScene = (world: Container) => {
   // grid lines stop at stream tiles (the canal covers them; its layers are above the grid)
   const streamMask = new Graphics();
   gridLines.setMask({ mask: streamMask, inverse: true });
+  gridLines.blendMode = 'multiply'; // the lines darken the ground they cross by a share (see GRID_SHADE)
   world.addChild(ground, terrain.container, gridLines, streamMask, canalBox, canalMask, jointBox, jointMask, canalTop, floors, flats, guides, overlay, solids);
   let canalDrawn: Readonly<{ tiles: State['tiles']; culverts: State['culverts']; win: ScreenWindow | null }> | null = null;
   const drawCanal = (state: State, win: ScreenWindow | null): void => {

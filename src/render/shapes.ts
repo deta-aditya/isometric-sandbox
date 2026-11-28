@@ -45,11 +45,15 @@ export const drawGround = (g: Graphics, w: number, h: number, color = GRASS): vo
   g.poly(quad({ x: 0, y: 0, w, h }, 0).flatMap(pt)).fill(color);
 };
 
+// Grid lines are drawn with a multiply blend (the scene sets it) in a light grey, so they darken whatever
+// ground is under them by the same share: on grass that is GRID_LINE, on snow or sand a soft grey line
+// instead of a dark green one. 0xc3 / 0xff matches GRID_LINE over GRASS within a step per channel.
+export const GRID_SHADE = 0xc3c3c3;
 export const drawGridLines = (g: Graphics, w: number, h: number): void => {
   const line = (a: P3, b: P3) => g.poly([...pt(a), ...pt(b)], false);
   for (let x = 0; x <= w; x++) line([x, 0, 0], [x, h, 0]);
   for (let y = 0; y <= h; y++) line([0, y, 0], [w, y, 0]);
-  g.stroke({ width: 1, color: GRID_LINE });
+  g.stroke({ width: 1, color: GRID_SHADE });
 };
 
 // Water: the surface, the inner bank walls on the two far sides (the only ones the camera can see
