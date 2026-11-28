@@ -12,6 +12,7 @@ Finished, not yet confirmed by Deta:
 - #43a Biome ground (8 Terrain tabs, 17 new terrains) and a tidier New game dialog with a Biome choice (2026-11-28)
 - #43b Grid lines take a shade of the ground under them, so they are soft on snow and sand (2026-11-28)
 - #43c Desert and Cold plant tabs: cacti, agave, Joshua tree, dry bush, dead tree, boulder; snowy pines, bare tree, snowy bush and rock, log pile, snowman (2026-11-28)
+- #43d Savanna and Tropical plant tabs: acacia, baobab, thorn bush, golden grass, termite mound, kopje rock; banana plant, fern, monstera, bird of paradise, jungle tree, tree fern, banyan, jackfruit tree, areca palm (2026-11-28)
 - #49 Selecting, moving, copying and blueprints no longer take terrain or Canal and Stream water; they stay where they were painted (2026-11-28)
 
 ## Log

@@ -43,16 +43,22 @@ ok(`every new terrain keeps apart from all other grounds (closest ${closest.pair
 // ===== Plants: a Scenery tab per biome (#43) =====
 {
   const scenery = CATEGORIES.find((c) => c.id === 'scenery')!.groups.map((g) => g.id);
-  assert.deepEqual(scenery.slice(-2), ['desert', 'cold']);
+  assert.deepEqual(scenery.slice(-4), ['desert', 'savanna', 'tropical', 'cold']);
   assert.deepEqual(names('desert'), ['Saguaro cactus', 'Barrel cactus', 'Prickly pear', 'Agave', 'Joshua tree', 'Dry bush', 'Dead tree', 'Boulder']);
   assert.deepEqual(names('cold'), ['Snowy pine', 'Snowy tall pine', 'Bare tree', 'Snowy bush', 'Snowy rock', 'Log pile', 'Snowman']);
-  [...itemsIn('desert'), ...itemsIn('cold')].forEach((i) => {
+  assert.deepEqual(names('savanna'), ['Acacia', 'Baobab', 'Thorn bush', 'Golden grass', 'Termite mound', 'Kopje rock']);
+  assert.deepEqual(names('tropical'), ['Banana plant', 'Fern', 'Monstera', 'Bird of paradise', 'Jungle tree', 'Tree fern', 'Banyan', 'Jackfruit tree', 'Areca palm']);
+  const plants = ['desert', 'savanna', 'tropical', 'cold'].flatMap(itemsIn);
+  plants.forEach((i) => {
     assert.equal(i.kind, 'object', i.id);
     assert.ok(i.name.length <= 16, i.id);
+    assert.equal(CATALOG.filter((o) => o.name === i.name).length, 1, `${i.name} is used once`);
   });
   // bare trees are full of branches: eight limbs, each forking into two twigs
   const parts = (id: string) => (CATALOG.find((i) => i.id === id) as { parts: readonly unknown[] }).parts.length;
   assert.ok(parts('dead-tree') >= 8 * 3 + 1 && parts('bare-tree') > parts('dead-tree'));
+  // the big savanna and tropical trees are built from branches ending in leaf clumps, not one crown
+  ['acacia', 'baobab', 'jungle-tree', 'banyan', 'jackfruit-tree'].forEach((id) => assert.ok(parts(id) >= 20, id));
 }
-ok('Scenery has Desert (8) and Cold (7) tabs after Sports, names within 16 characters; bare trees branch');
+ok('Scenery has Desert (8), Savanna (6), Tropical (9) and Cold (7) tabs after Sports, unique names within 16 characters; trees branch');
 console.log('all passed');

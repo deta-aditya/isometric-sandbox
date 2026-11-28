@@ -22,6 +22,8 @@ export type GroupId =
   | 'sports'
   | 'desert'
   | 'cold'
+  | 'savanna'
+  | 'tropical'
   | 'office'
   | 'canteen'
   | 'lab'
@@ -79,6 +81,8 @@ export const CATEGORIES: readonly Category[] = [
       { id: 'waterside', name: 'Waterside' },
       { id: 'sports', name: 'Sports' },
       { id: 'desert', name: 'Desert' },
+      { id: 'savanna', name: 'Savanna' },
+      { id: 'tropical', name: 'Tropical' },
       { id: 'cold', name: 'Cold' },
     ],
   },
@@ -298,6 +302,13 @@ const crown = (cx: number, cy: number, r: number, z: number, dark: number, mid: 
   });
 };
 
+// A dome of rock: six round slices, widest at the ground, lighter toward the top
+const dome = (cx: number, cy: number, r: number, z: number, height: number, dark: number, light: number): Part[] =>
+  [1, 0.97, 0.91, 0.82, 0.68, 0.46].map((k, i) => {
+    const rr = r * k;
+    return cyl(cx - rr, cy - rr, rr * 2, rr * 2, z + (height / 6) * i, height / 6, i < 3 ? dark : light);
+  });
+
 // A conifer: stacked cones, each tier narrower than the one below
 const pine = (cx: number, cy: number, r: number, z: number, height: number, color: number, light: number): Part[] =>
   [1, 0.78, 0.55].map((k, i) => {
@@ -315,16 +326,17 @@ const limb = (x: number, y: number, z: number, dx: number, dy: number, dz: numbe
     const t = snap(Math.max(t0 * 0.55, t0 - i * t0 * 0.15));
     const [xa, xb] = [snap(x + dx * i), snap(x + dx * (i + 1))];
     const [ya, yb] = [snap(y + dy * i), snap(y + dy * (i + 1))];
-    const bz = z + dz * i;
+    const bz = dz >= 0 ? z + dz * i : z + dz * (i + 1); // a negative dz steps down: each step sits below the last
     const span = (p: number, q: number): readonly [number, number] =>
       // a 1/1024 tile gap (about 0.03 px) between steps along the ground, so a step is cleanly behind or
       // in front of the next instead of touching it on a side and the top at once
       Math.abs(q - p) >= t ? [Math.min(p, q), Math.abs(q - p) - 1 / 1024] : [snap((p + q) / 2 - t / 2), t];
     const [bx, w] = span(xa, xb);
     const [by, h] = span(ya, yb);
+    const tall = Math.abs(dz);
     return snow === undefined
-      ? [box(bx, by, w, h, bz, dz, color)]
-      : [box(bx, by, w, h, bz, dz - 1.5, color), box(bx, by, w, h, bz + dz - 1.5, 1.5, snow)];
+      ? [box(bx, by, w, h, bz, tall, color)]
+      : [box(bx, by, w, h, bz, tall - 1.5, color), box(bx, by, w, h, bz + tall - 1.5, 1.5, snow)];
   }).flat();
 
 // A bare crown: limbs leaving the trunk at different heights, each forking into two shorter twigs at its
@@ -342,6 +354,22 @@ const bareCrown = (limbs: readonly (readonly [number, number, number])[], color:
     };
     return [...limb(x0, y0, z, dx, dy, dz, n, color, snow, 0.045), ...twig(40, 0), ...twig(-40, 3)];
   });
+
+// A limb from one point to another in `n` steps (see limb), for branches that must end exactly under a
+// clump of leaves
+const limbTo = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, n: number, color: number, t0: number): Part[] =>
+  limb(x0, y0, z0, (x1 - x0) / n, (y1 - y0) / n, (z1 - z0) / n, n, color, undefined, t0);
+
+// A frond or broad leaf from (x, y, z) heading out at `deg`: it rises `up` steps of `rise` px, then arches
+// down `down` steps of `fall` px, `step` tiles along the ground per step, tapering from width `t0`
+const frond = (x: number, y: number, z: number, deg: number, step: number, up: number, rise: number, down: number, fall: number, color: number, t0: number): Part[] => {
+  const a = (deg * Math.PI) / 180, dx = Math.cos(a) * step, dy = Math.sin(a) * step;
+  return [
+    ...limb(x, y, z, dx, dy, rise, up, color, undefined, t0),
+    // the arch starts under the last rising step, so the two never share space where they meet
+    ...limb(x + dx * up, y + dy * up, z + rise * (up - 1), dx, dy, -fall, down, color, undefined, t0 * 0.8),
+  ];
+};
 
 const flower = (cx: number, cy: number, stem: number, color: number, head: number, base = 0): Part[] => [
   box(cx - 0.025, cy - 0.025, 0.05, 0.05, base, stem, 0x16a34a),
@@ -1376,6 +1404,209 @@ const ITEMS: readonly CatalogItem[] = [
     pyr(0.05, 0.12, 0.9, 0.8, 0, 26, 0xb07a5a),
     pyr(0.3, 0.06, 0.6, 0.55, 0, 34, 0xc08a68),
     pyr(0.55, 0.5, 0.4, 0.4, 0, 14, 0x9a6a4e),
+  ]),
+
+  // Biome plants (#43): Savanna
+  obj('savanna', 'acacia', 'Acacia', 2, 2, [
+    cyl(0.92, 0.92, 0.16, 0.16, 0, 40, 0x5b4632), // a short trunk that forks low
+    cyl(0.95, 0.95, 0.1, 0.1, 40, 46, 0x5b4632), // its leader, up to the top pad
+    // four limbs spreading wide in a V, each holding a flat pad of leaves at its own height; each limb
+    // bends once on the way, so the branching reads under the crown
+    ...([[45, 66], [135, 74], [225, 62], [315, 78]] as const).flatMap(([deg, pz], i) => {
+      const a = (deg * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+      const bx = 1 + c * 0.34 + sn * 0.08 * (i % 2 ? 1 : -1), by = 1 + sn * 0.34 - c * 0.08 * (i % 2 ? 1 : -1); // the bend
+      const px = 1 + c * 0.62, py = 1 + sn * 0.62;
+      return [
+        ...limbTo(1 + c * 0.1, 1 + sn * 0.1, 40, bx, by, 40 + (pz - 40) * 0.55, 3, 0x5b4632, 0.07),
+        ...limbTo(bx, by, 40 + (pz - 40) * 0.55, px, py, pz, 3, 0x5b4632, 0.05),
+        cyl(px - 0.4, py - 0.4, 0.8, 0.8, pz, 5, 0x3f5a22), // the pad: a dark underside and a lighter top
+        cyl(px - 0.32, py - 0.32, 0.64, 0.64, pz + 5, 4, 0x5f7d34),
+      ];
+    }),
+    cyl(0.68, 0.68, 0.64, 0.64, 86, 5, 0x4d6b2a), // the top pad on the leader
+    cyl(0.75, 0.75, 0.5, 0.5, 91, 4, 0x6b8a3c),
+  ]),
+  obj('savanna', 'baobab', 'Baobab', 2, 2, [
+    cyl(0.52, 0.52, 0.96, 0.96, 0, 40, 0x9a8476), // a fat bottle trunk, narrowing toward the top
+    cyl(0.6, 0.6, 0.8, 0.8, 40, 16, 0xa48e80),
+    cyl(0.7, 0.7, 0.6, 0.6, 56, 10, 0x9a8476),
+    // stubby branches like roots in the air, each forking into two twigs with a small tuft of leaves
+    ...[0, 60, 120, 180, 240, 300].flatMap((deg, i) => {
+      const a = (deg * Math.PI) / 180, z0 = 66 + (i % 2) * 3;
+      const x0 = 1 + Math.cos(a) * 0.18, y0 = 1 + Math.sin(a) * 0.18;
+      const x1 = 1 + Math.cos(a) * 0.5, y1 = 1 + Math.sin(a) * 0.5, z1 = z0 + 15;
+      const twig = (turn: number, lift: number): Part[] => {
+        const b = a + (turn * Math.PI) / 180, tx = x1 + Math.cos(b) * 0.24, ty = y1 + Math.sin(b) * 0.24;
+        return [
+          ...limbTo(x1, y1, z1 + lift, tx, ty, z1 + lift + 8, 2, 0x8a7466, 0.05),
+          cyl(tx - 0.09, ty - 0.09, 0.18, 0.18, z1 + lift + 8, 6, i % 2 ? 0x5f7d34 : 0x4d6b2a),
+        ];
+      };
+      return [...limbTo(x0, y0, z0, x1, y1, z1, 3, 0x8a7466, 0.1), ...twig(32, 0), ...twig(-32, 4)];
+    }),
+  ]),
+  obj('savanna', 'thorn-bush', 'Thorn bush', 1, 1, [
+    // a low flat-topped thorny shrub on a tangle of grey twigs
+    ...[20, 110, 200, 290].flatMap((deg) => {
+      const a = (deg * Math.PI) / 180;
+      return limb(0.5 + Math.cos(a) * 0.06, 0.5 + Math.sin(a) * 0.06, 0, Math.cos(a) * 0.1, Math.sin(a) * 0.1, 4, 3, 0x6b5e4e, undefined, 0.05);
+    }),
+    cyl(0.06, 0.06, 0.88, 0.88, 12, 5, 0x55602e),
+    cyl(0.16, 0.16, 0.68, 0.68, 17, 3, 0x6e7a3c),
+  ]),
+  obj('savanna', 'golden-grass', 'Golden grass', 1, 1, [
+    // tall golden blades in a loose clump, seed heads a shade lighter on top
+    ...([[0.18, 0.22, 18], [0.4, 0.15, 24], [0.62, 0.2, 20], [0.8, 0.34, 16], [0.25, 0.44, 22], [0.5, 0.4, 27], [0.72, 0.52, 21],
+      [0.15, 0.68, 17], [0.38, 0.62, 23], [0.6, 0.72, 19], [0.82, 0.76, 15], [0.42, 0.84, 18]] as const).flatMap(([x, y, h], i) => [
+      box(x, y, 0.05, 0.05, 0, h, i % 2 ? 0xc9a03a : 0xb88f2e),
+      box(x - 0.005, y - 0.005, 0.06, 0.06, h, 4, 0xe6c766),
+    ]),
+  ]),
+  obj('savanna', 'termite-mound', 'Termite mound', 1, 1, [
+    // a tall clay spire, narrowing as it climbs and leaning a little
+    cyl(0.18, 0.2, 0.64, 0.6, 0, 12, 0xb0683e),
+    cyl(0.26, 0.27, 0.48, 0.46, 12, 14, 0xbd7448),
+    cyl(0.32, 0.32, 0.36, 0.34, 26, 14, 0xb0683e),
+    cyl(0.36, 0.35, 0.26, 0.25, 40, 10, 0xbd7448),
+    cone(0.38, 0.37, 0.2, 0.2, 50, 12, 0xb0683e),
+  ]),
+  obj('savanna', 'kopje-rock', 'Kopje rock', 2, 2, [
+    // smooth granite domes worn round by the weather, with a boulder balanced on the biggest
+    ...dome(0.6, 0.6, 0.5, 0, 34, 0x8f8478, 0xb3a798),
+    ...dome(1.5, 1.5, 0.4, 0, 22, 0x857a6f, 0xa89c8e),
+    ...dome(1.47, 0.53, 0.34, 0, 18, 0x8f8478, 0xb3a798),
+    ...dome(0.6, 0.6, 0.24, 34, 18, 0x998d80, 0xc2b7a9),
+  ]),
+
+  // Biome plants (#43): Tropical
+  obj('tropical', 'banana-plant', 'Banana plant', 1, 1, [
+    cyl(0.43, 0.43, 0.14, 0.14, 0, 46, 0x7a8a3a), // the green pseudo-stem
+    box(0.58, 0.44, 0.09, 0.12, 28, 12, 0xc9cf4a), // a bunch of bananas under a leaf
+    box(0.59, 0.47, 0.06, 0.06, 19, 9, 0x7a2a4a), // the purple bud hanging below it
+    // four broad leaves rising and arching over
+    ...[0, 90, 180, 270].flatMap((deg) => {
+      const a = (deg * Math.PI) / 180;
+      return frond(0.5 + Math.cos(a) * 0.09, 0.5 + Math.sin(a) * 0.09, 46, deg, 0.095, 2, 6, 2, 6, deg % 180 ? 0x3f9a3a : 0x4fae44, 0.18);
+    }),
+    cyl(0.47, 0.47, 0.06, 0.06, 58, 7, 0x5fbf4f), // a new leaf rolled up in the middle
+  ]),
+  obj('tropical', 'fern', 'Fern', 1, 1, [
+    // arching fronds all round a curled fiddlehead
+    ...[0, 60, 120, 180, 240, 300].flatMap((deg, i) => {
+      const a = (deg * Math.PI) / 180;
+      return frond(0.5 + Math.cos(a) * 0.11, 0.5 + Math.sin(a) * 0.11, 2 * (i % 2), deg, 0.07, 3, 3, 2, 3, i % 2 ? 0x3f8f3a : 0x4fa046, 0.1);
+    }),
+    cyl(0.46, 0.46, 0.08, 0.08, 0, 8, 0x5a9a3a),
+  ]),
+  obj('tropical', 'monstera', 'Monstera', 1, 1, [
+    // big split leaves held up on stalks, one in each quarter of the tile at its own height
+    ...([[0.29, 0.29, 12], [0.71, 0.29, 18], [0.29, 0.71, 15], [0.71, 0.71, 21]] as const).flatMap(([x, y, h], i) => {
+      const n = 4, dx = (x - 0.5) / n, dy = (y - 0.5) / n, out = x < 0.5 ? -1 : 1;
+      return [
+        ...limb(0.5 + dx * 0.5, 0.5 + dy * 0.5, 0, dx * 0.875, dy * 0.875, h / n, n, 0x4f8a34, undefined, 0.04), // a stalk leaning out from the base
+        // the leaf, split down the middle, its outer half drooping lower than the half by the stalk
+        box(out < 0 ? x - 0.2 : x + 0.015, y - 0.19, 0.185, 0.38, h - 5, 3, i % 2 ? 0x1f6b3a : 0x267a44),
+        box(out < 0 ? x - 0.015 : x - 0.17, y - 0.19, 0.155, 0.38, h, 3, i % 2 ? 0x2a8048 : 0x1f6b3a),
+      ];
+    }),
+  ]),
+  obj('tropical', 'bird-of-paradise', 'Bird of paradise', 1, 1, [
+    // upright paddle leaves, and flowers like birds' heads in orange and blue
+    ...([[0.2, 0.28, 36], [0.5, 0.16, 42], [0.8, 0.3, 34], [0.24, 0.72, 38], [0.76, 0.74, 40], [0.5, 0.84, 32]] as const).flatMap(([x, y, h], i) => [
+      box(x - 0.02, y - 0.02, 0.04, 0.04, 0, h - 18, 0x4a7a5a),
+      box(x - 0.1, y - 0.025, 0.2, 0.05, h - 18, 18, i % 2 ? 0x3f7a6a : 0x4a8a76), // a paddle leaf
+    ]),
+    // two flowers like birds' heads: a beak, an orange crest and a blue tongue
+    ...([[0.38, 0.46, 34], [0.56, 0.54, 28]] as const).flatMap(([x, y, h]) => [
+      box(x, y, 0.05, 0.05, 0, h, 0x4a7a5a),
+      box(x - 0.04, y, 0.2, 0.05, h, 3, 0x6a4a5a),
+      box(x, y, 0.12, 0.05, h + 3, 9, 0xff7a1a),
+      box(x + 0.12, y, 0.04, 0.05, h + 3, 5, 0x2563eb),
+    ]),
+  ]),
+  obj('tropical', 'jungle-tree', 'Jungle tree', 2, 2, [
+    cyl(0.86, 0.86, 0.28, 0.28, 0, 80, 0x8a7a5a),
+    cyl(0.92, 0.92, 0.16, 0.16, 80, 32, 0x8a7a5a), // its leader, up to the top clump // tall pale trunk, rising above the rest of the forest
+    // buttress roots fanning from the base
+    box(0.5, 0.96, 0.36, 0.08, 0, 16, 0x7a6a4c),
+    box(1.14, 0.96, 0.36, 0.08, 0, 13, 0x7a6a4c),
+    box(0.96, 0.5, 0.08, 0.36, 0, 14, 0x7a6a4c),
+    box(0.96, 1.14, 0.08, 0.36, 0, 18, 0x7a6a4c),
+    // vines hanging from the crown
+    box(0.3, 1.18, 0.03, 0.03, 40, 50, 0x2f6b2a),
+    box(1.62, 0.7, 0.03, 0.03, 48, 44, 0x2f6b2a),
+    box(1.2, 1.66, 0.03, 0.03, 34, 56, 0x2f6b2a),
+    // four big limbs leaving the trunk near the top, spreading out and up, each ending in its own clump
+    // of leaves, so the crown is lumpy with the branches showing between the clumps
+    ...([[0, 102], [90, 94], [180, 106], [270, 98]] as const).flatMap(([deg, cz], i) => {
+      const a = (deg * Math.PI) / 180, c = Math.round(Math.cos(a)), sn = Math.round(Math.sin(a));
+      const cx = 1 + c * 0.66, cy = 1 + sn * 0.66;
+      return [
+        ...limbTo(1 + c * 0.16, 1 + sn * 0.16, 80, cx, cy, cz, 4, 0x7a6a4c, 0.08),
+        ...crown(cx, cy, 0.33, cz, 0x14532d, i % 2 ? 0x166534 : 0x1a6a38, 0x1f7a3a),
+      ];
+    }),
+    ...crown(1, 1, 0.33, 112, 0x14532d, 0x166534, 0x22843f), // the top clump on the trunk
+  ]),
+  obj('tropical', 'tree-fern', 'Tree fern', 1, 1, [
+    cyl(0.44, 0.44, 0.12, 0.12, 0, 66, 0x5a4030), // slender furry trunk
+    // a ring of long fronds arching out from the top
+    ...[0, 45, 90, 135, 180, 225, 270, 315].flatMap((deg, i) => {
+      const a = (deg * Math.PI) / 180;
+      return frond(0.5 + Math.cos(a) * 0.11, 0.5 + Math.sin(a) * 0.11, 66 + 2 * (i % 2), deg, 0.07, 2, 4, 3, 5, i % 2 ? 0x2f7a34 : 0x3a8a3e, 0.1);
+    }),
+    cyl(0.46, 0.46, 0.08, 0.08, 76, 3, 0x6a9a3a), // curled new fronds in the middle
+  ]),
+
+  obj('tropical', 'banyan', 'Banyan', 2, 2, [
+    cyl(0.84, 0.84, 0.32, 0.32, 0, 54, 0x6f6252), // the main trunk
+    // long level branches reaching out from the trunk; each drops roots into the ground that grow into
+    // extra trunks, and carries a flat clump of leaves above
+    ...([[0, 58], [72, 62], [144, 56], [216, 60], [288, 64]] as const).flatMap(([deg, bz], i) => {
+      const a = (deg * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+      const n = 4, st = 0.13, x0 = 1 + c * 0.18, y0 = 1 + sn * 0.18;
+      const at = (k: number) => [x0 + c * st * k, y0 + sn * st * k] as const;
+      const [mx, my] = at(2.5), [ex, ey] = at(n - 0.5); // under the middle and the end of the branch
+      const t = (k: number) => Math.max(0.05 * 0.55, 0.05 - k * 0.05 * 0.15); // the branch's width at step k
+      return [
+        ...limb(x0, y0, bz, c * st, sn * st, 2, n, 0x6f6252, undefined, 0.05),
+        cyl(mx - t(2) / 2 + 0.005, my - t(2) / 2 + 0.005, t(2) - 0.01, t(2) - 0.01, 0, bz + 4, 0x7a6c5a), // roots, reaching up to the branch
+        cyl(ex - t(3) / 2 + 0.003, ey - t(3) / 2 + 0.003, t(3) - 0.006, t(3) - 0.006, 0, bz + 6, 0x7a6c5a),
+        cyl(1 + c * 0.6 - 0.3, 1 + sn * 0.6 - 0.3, 0.6, 0.6, bz + 8, 8, i % 2 ? 0x3f6b24 : 0x4a7a2a), // its clump of leaves
+        cyl(1 + c * 0.6 - 0.22, 1 + sn * 0.6 - 0.22, 0.44, 0.44, bz + 16, 5, 0x5f9034),
+      ];
+    }),
+    cyl(0.62, 0.62, 0.76, 0.76, 80, 10, 0x4a7a2a), // the crown's top, over the trunk
+    cyl(0.74, 0.74, 0.52, 0.52, 90, 6, 0x5f9034),
+  ]),
+  obj('tropical', 'jackfruit-tree', 'Jackfruit tree', 1, 1, [
+    cyl(0.43, 0.43, 0.14, 0.14, 0, 38, 0x6b4a2e),
+    // the big knobbly fruits grow straight off the trunk
+    box(0.57, 0.44, 0.12, 0.12, 12, 14, 0x9aa83a),
+    box(0.31, 0.46, 0.12, 0.1, 20, 12, 0x8a9a32),
+    box(0.45, 0.57, 0.1, 0.12, 26, 12, 0x9aa83a),
+    box(0.44, 0.31, 0.1, 0.12, 6, 12, 0x8a9a32),
+    // two limbs forking out of the trunk, each holding a round clump of leaves, and a leader up the middle
+    // to a third clump on top
+    ...[0, 180].flatMap((deg) => {
+      const c = deg ? -1 : 1, cx = 0.5 + c * 0.27;
+      return [
+        ...limbTo(0.5 + c * 0.08, 0.5, 26, cx, 0.5, 34, 2, 0x6b4a2e, 0.05),
+        ...crown(cx, 0.5, 0.22, 34, 0x14532d, 0x166534, 0x1f7a3a),
+      ];
+    }),
+    cyl(0.46, 0.46, 0.08, 0.08, 38, 36, 0x6b4a2e),
+    ...crown(0.5, 0.5, 0.24, 74, 0x14532d, 0x166534, 0x22843f),
+  ]),
+  obj('tropical', 'areca-palm', 'Areca palm', 1, 1, [
+    // three slim palms of different heights from one clump, each with a small tuft of fronds
+    ...([[0.34, 0.34, 88], [0.67, 0.42, 64], [0.42, 0.67, 44]] as const).flatMap(([x, y, h], i) => [
+      cyl(x - 0.035, y - 0.035, 0.07, 0.07, 0, h, i % 2 ? 0x9aa070 : 0x8a9468),
+      ...[0, 90, 180, 270].flatMap((deg) => {
+        const a = (deg * Math.PI) / 180;
+        return frond(x + Math.cos(a) * 0.045, y + Math.sin(a) * 0.045, h, deg, 0.06, 1, 5, 3, 5, i % 2 ? 0x3f9a3a : 0x4fae44, 0.09);
+      }),
+    ]),
   ]),
 
   // Biome plants (#43): Cold
