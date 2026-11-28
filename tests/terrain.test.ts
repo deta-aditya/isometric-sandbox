@@ -36,7 +36,7 @@ assert.equal(getItem('flowery-grass').kind === 'terrain' && getItem('flowery-gra
 // Terrain sits after Flooring in the bar; the filter keys keep 1 to 4 and give Terrain the fifth
 assert.deepEqual(CATEGORIES.map((c) => c.id), ['scenery', 'furniture', 'flooring', 'terrain', 'building']);
 assert.deepEqual(FILTER_ORDER, ['scenery', 'furniture', 'flooring', 'building', 'terrain']);
-assert.deepEqual(groupsOf('terrain').map((g) => g.name), ['Grass', 'Ground']);
+assert.deepEqual(groupsOf('terrain').map((g) => g.name), ['Grassland', 'Desert', 'Savanna', 'Tropical', 'Wetland', 'Coastal', 'Cold', 'Alpine']);
 ok('terrain items are in the catalog, Dirt has its own id, and the old gravel and sand tiles are gone');
 
 // ===== Painting =====

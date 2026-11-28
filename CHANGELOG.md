@@ -9,7 +9,7 @@ Each entry has the date it was logged and the todo numbers it covers, so it can 
 ## Waiting to be logged
 
 Finished, not yet confirmed by Deta:
-- (nothing waiting)
+- #43a Biome ground (8 Terrain tabs, 17 new terrains) and a tidier New game dialog with a Biome choice (2026-11-28)
 
 ## Log
 

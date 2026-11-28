@@ -1,6 +1,6 @@
 // The game chip (top left), the Game panel under it, and the dialogs (new game, save first). DOM only:
 // it shows what main.ts gives it and reports what the player asked for; main.ts does the saving.
-import { CATALOG, getTerrainDef } from '../catalog';
+import { CATALOG, CATEGORIES, type TerrainDef, getTerrainDef } from '../catalog';
 import { MAX_GRID, MIN_GRID } from '../config';
 import type { SaveEntry } from '../saveStore';
 import { AUTOSAVE_CHOICES, type AutosaveMinutes, NAME_MAX, type Session, chipState, cleanName, relativeTime } from '../session';
@@ -62,9 +62,16 @@ const PENCIL_SVG = svg("<path d='M4 20 l1 -4 L16 5 a2 2 0 0 1 3 3 L8 19 z'/><pat
 const TRASH_SVG = svg("<path d='M4 7 h16'/><path d='M9 7 V4 h6 v3'/><path d='M6 7 l1 13 h10 l1 -13'/><path d='M10 11 v6 M14 11 v6'/>", 14);
 
 const AUTOSAVE_LABEL = (m: AutosaveMinutes): string => (m === 0 ? 'Off' : `Every ${m} min`);
-// The twelve grounds a map can start on, in catalog order
+// The grounds a map can start on (every terrain), in catalog order
 const GROUNDS = CATALOG.flatMap((i) => (i.kind === 'terrain' ? [i] : []));
 const css = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
+// Biomes, as the Terrain tabs group them (#43; a stopgap until #30 settles categories)
+const BIOMES = CATEGORIES.find((c) => c.id === 'terrain')!.groups;
+// A swatch shows a terrain's own specks over its color
+const speckled = (def: TerrainDef): string =>
+  (def.specks ?? [])
+    .flatMap((c, i) => [[22, 30], [70, 24], [42, 72], [82, 68]].slice(i, i + 1).map(([x, y]) => `radial-gradient(circle at ${x}% ${y}%, ${css(c)} 0 2px, transparent 2.5px)`))
+    .join(', ');
 
 const GRID_ERROR = `Use a whole number from ${MIN_GRID} to ${MAX_GRID}`;
 const FULL_ERROR = "Couldn't save, storage is full";
@@ -285,7 +292,7 @@ export const createGameMenu = (actions: MenuActions) => {
     return b;
   };
 
-  // New game: a name, a width and a height (or a square pick) with a preview of the map's shape
+  // New game: a name, a size (a square pick, or Custom for a width and a height) and a ground, picked by biome
   let newGameLayer: { close: () => void } | null = null;
   function openNewGame(): void {
     if (newGameLayer || !info) return;
@@ -297,38 +304,63 @@ export const createGameMenu = (actions: MenuActions) => {
     name.maxLength = NAME_MAX;
     name.value = info.suggestedName;
     name.setAttribute('aria-label', 'Name');
-    const side = (label: string): { input: HTMLInputElement; field: HTMLElement } => {
+    // Size: four square sizes or Custom, which shows a width and a height
+    const side = (label: string): HTMLInputElement => {
       const input = el('input', 'game-input game-number');
       input.type = 'number';
       input.min = String(MIN_GRID);
       input.max = String(MAX_GRID);
       input.step = '1';
       input.value = '64';
-      const field = el('label', 'game-field');
-      field.append(textEl('span', 'game-field-label', label), input);
-      return { input, field };
+      input.setAttribute('aria-label', label);
+      return input;
     };
-    const width = side('Width');
-    const height = side('Height');
-    const squares = el('div', 'game-squares');
-    squares.append(textEl('span', 'game-field-label', 'Square:'));
-    [32, 64, 128, 256].forEach((n) =>
-      squares.append(
-        button('game-action', String(n), () => {
-          width.input.value = String(n);
-          height.input.value = String(n);
-          update();
-        }),
-      ),
-    );
-    const shape = el('div', 'game-shape');
-    const box = el('div', 'game-shape-box');
-    shape.append(box);
-    // Ground: a grid of swatches, one pick (grass by default). Plain buttons, so Tab, Enter and Space work
+    const width = { input: side('Width') };
+    const height = { input: side('Height') };
+    const custom = el('div', 'game-custom');
+    custom.append(width.input, textEl('span', 'game-times', '×'), height.input, textEl('span', 'game-hint', `tiles, ${MIN_GRID} to ${MAX_GRID}`));
+    const sizeChoices = el('div', 'game-segments');
+    sizeChoices.setAttribute('role', 'group');
+    sizeChoices.setAttribute('aria-label', 'Size');
+    const segOf = new Map<string, HTMLButtonElement>();
+    const chooseSize = (key: string): void => {
+      segOf.forEach((b, k) => {
+        b.classList.toggle('selected', k === key);
+        b.setAttribute('aria-pressed', String(k === key));
+      });
+      custom.hidden = key !== 'custom';
+      if (key !== 'custom') {
+        width.input.value = key;
+        height.input.value = key;
+      }
+      update();
+    };
+    ['32', '64', '128', '256', 'custom'].forEach((key) => {
+      const b = button('game-segment', key === 'custom' ? 'Custom' : key, () => chooseSize(key));
+      segOf.set(key, b);
+      sizeChoices.append(b);
+    });
+    // Ground: the swatches of one biome, one pick (grass by default). Plain buttons, so Tab, Enter and Space work
     let ground = 'grass';
     const groundName = textEl('span', 'game-ground-name', getTerrainDef(ground).name);
-    const groundLabel = el('div', 'game-field-label game-ground-label');
-    groundLabel.append(textEl('span', '', 'Ground'), groundName);
+    // first a biome, then the grounds of that biome
+    const biome = el('select', 'game-select game-biome');
+    biome.setAttribute('aria-label', 'Biome');
+    BIOMES.forEach((g) => {
+      const o = el('option', '');
+      o.value = g.id;
+      o.textContent = g.name;
+      biome.append(o);
+    });
+    const showBiome = (id: string): void => {
+      biome.value = id;
+      swatchOf.forEach((b, key) => (b.hidden = getTerrainDef(key).group !== id));
+    };
+    // a new biome picks its first ground, so the name and the outlined swatch always match what is shown
+    biome.addEventListener('change', () => {
+      showBiome(biome.value);
+      pick(GROUNDS.find((d) => d.group === biome.value)!.id);
+    });
     const swatches = el('div', 'game-swatches');
     swatches.setAttribute('role', 'group');
     swatches.setAttribute('aria-label', 'Ground');
@@ -340,7 +372,6 @@ export const createGameMenu = (actions: MenuActions) => {
         b.classList.toggle('selected', key === id);
         b.setAttribute('aria-pressed', String(key === id));
       });
-      box.style.background = css(getTerrainDef(id).color);
     };
     GROUNDS.forEach((def) => {
       const b = el('button', 'game-swatch');
@@ -349,13 +380,15 @@ export const createGameMenu = (actions: MenuActions) => {
       b.setAttribute('aria-label', def.name);
       // flowery grass gets a few light dots over its green
       b.style.backgroundColor = css(def.color);
-      b.classList.toggle('flowery', def.specks !== undefined);
+      if (def.specks) b.style.backgroundImage = speckled(def);
       b.addEventListener('click', () => pick(def.id));
       swatchOf.set(def.id, b);
       swatches.append(b);
     });
     const groundField = el('div', 'game-ground');
-    groundField.append(groundLabel, swatches);
+    const groundHead = el('div', 'game-line');
+    groundHead.append(textEl('span', 'game-field-label game-line-label', 'Ground'), biome, groundName);
+    groundField.append(groundHead, swatches);
     const error = textEl('div', 'game-error', GRID_ERROR);
     error.hidden = true;
 
@@ -364,11 +397,6 @@ export const createGameMenu = (actions: MenuActions) => {
       const w = sideOf(width.input.value);
       const h = sideOf(height.input.value);
       error.hidden = w !== null && h !== null;
-      if (w !== null && h !== null) {
-        const fit = Math.min(64 / w, 48 / h);
-        box.style.width = `${Math.round(w * fit)}px`;
-        box.style.height = `${Math.round(h * fit)}px`;
-      }
       return w !== null && h !== null;
     };
     width.input.addEventListener('input', update);
@@ -387,12 +415,10 @@ export const createGameMenu = (actions: MenuActions) => {
     };
     const buttons = el('div', 'game-buttons');
     buttons.append(button('game-action', 'Cancel', () => newGameLayer?.close()), button('game-primary', 'Start', () => void start()));
-    const sizes = el('div', 'game-sizes');
-    const fields = el('div', 'game-size-fields');
-    fields.append(width.field, height.field);
-    const left = el('div', 'game-size-left');
-    left.append(fields, squares);
-    sizes.append(left, shape);
+    const sizes = el('div', 'game-size');
+    const sizeHead = el('div', 'game-line');
+    sizeHead.append(textEl('span', 'game-field-label game-line-label', 'Size'), sizeChoices);
+    sizes.append(sizeHead, custom);
     const nameField = el('label', 'game-field wide');
     nameField.append(textEl('span', 'game-field-label', 'Name'), name);
     dialog.append(
@@ -401,7 +427,6 @@ export const createGameMenu = (actions: MenuActions) => {
       sizes,
       groundField,
       error,
-      textEl('div', 'game-hint', `${MIN_GRID} to ${MAX_GRID} tiles each side. Starts empty on this ground.`),
       buttons,
     );
     dialog.addEventListener('keydown', (e) => {
@@ -416,7 +441,8 @@ export const createGameMenu = (actions: MenuActions) => {
       back.remove();
     });
     pick(ground);
-    update();
+    showBiome(getTerrainDef(ground).group);
+    chooseSize('64');
     name.focus();
     name.select();
   }

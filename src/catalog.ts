@@ -50,8 +50,14 @@ export type GroupId =
   | 'paints'
   | 'finishes'
   | 'floors'
-  | 'grass'
-  | 'ground';
+  | 'terrain-grassland'
+  | 'terrain-desert'
+  | 'terrain-savanna'
+  | 'terrain-tropical'
+  | 'terrain-wetland'
+  | 'terrain-coastal'
+  | 'terrain-cold'
+  | 'terrain-alpine';
 
 export type Group = Readonly<{ id: GroupId; name: string }>;
 export type Category = Readonly<{ id: CategoryId; name: string; icon: string; groups: readonly Group[] }>;
@@ -113,8 +119,14 @@ export const CATEGORIES: readonly Category[] = [
     name: 'Terrain',
     icon: 'soil-dirt',
     groups: [
-      { id: 'grass', name: 'Grass' },
-      { id: 'ground', name: 'Ground' },
+      { id: 'terrain-grassland', name: 'Grassland' },
+      { id: 'terrain-desert', name: 'Desert' },
+      { id: 'terrain-savanna', name: 'Savanna' },
+      { id: 'terrain-tropical', name: 'Tropical' },
+      { id: 'terrain-wetland', name: 'Wetland' },
+      { id: 'terrain-coastal', name: 'Coastal' },
+      { id: 'terrain-cold', name: 'Cold' },
+      { id: 'terrain-alpine', name: 'Alpine' },
     ],
   },
   {
@@ -2053,20 +2065,38 @@ const ITEMS: readonly CatalogItem[] = [
   { kind: 'tile', group: 'floors', id: 'turf-grass', name: 'Turf grass light', color: 0x34a865 },
   { kind: 'tile', group: 'floors', id: 'turf-grass-dark', name: 'Turf grass dark', color: 0x1a9060 },
 
-  // Terrain. `grass` is the eraser: painting it takes the terrain away, so the tile is plain grass again.
-  { kind: 'terrain', group: 'grass', id: 'grass', name: 'Grass', color: 0x3a7d44 },
-  { kind: 'terrain', group: 'grass', id: 'lush-grass', name: 'Lush grass', color: 0x2c6834 },
-  { kind: 'terrain', group: 'grass', id: 'dry-grass', name: 'Dry grass', color: 0x96974e },
-  { kind: 'terrain', group: 'grass', id: 'turf', name: 'Turf', color: 0x529e48 },
-  { kind: 'terrain', group: 'grass', id: 'meadow', name: 'Meadow', color: 0x709240 },
-  { kind: 'terrain', group: 'grass', id: 'moss', name: 'Moss', color: 0x3e6c54 },
-  { kind: 'terrain', group: 'grass', id: 'flowery-grass', name: 'Flowery grass', color: 0x4a8a46, specks: [0xf4f1ea, 0xf2c94c, 0xe98fb5, 0xb69ae8] },
+  // Terrain, one tab per biome (#43; a stopgap until #30 settles categories). `grass` is the eraser:
+  // painting it takes the terrain away, so the tile is plain grass again.
+  { kind: 'terrain', group: 'terrain-grassland', id: 'grass', name: 'Grass', color: 0x3a7d44 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'lush-grass', name: 'Lush grass', color: 0x2c6834 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'turf', name: 'Turf', color: 0x529e48 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'meadow', name: 'Meadow', color: 0x709240 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'flowery-grass', name: 'Flowery grass', color: 0x4a8a46, specks: [0xf4f1ea, 0xf2c94c, 0xe98fb5, 0xb69ae8] },
   // 'dirt' is the Dirt path tile, so the terrain keeps its own id
-  { kind: 'terrain', group: 'ground', id: 'soil-dirt', name: 'Soil', color: 0x7a5536 },
-  { kind: 'terrain', group: 'ground', id: 'mulch', name: 'Mulch', color: 0x5b3a24 },
-  { kind: 'terrain', group: 'ground', id: 'clay', name: 'Clay', color: 0xb8613a },
-  { kind: 'terrain', group: 'ground', id: 'terrain-gravel', name: 'Gravel', color: 0xb09c70 },
-  { kind: 'terrain', group: 'ground', id: 'terrain-sand', name: 'Sand', color: 0xf0d77a },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'soil-dirt', name: 'Soil', color: 0x7a5536 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'mulch', name: 'Mulch', color: 0x5b3a24 },
+  { kind: 'terrain', group: 'terrain-grassland', id: 'terrain-gravel', name: 'Gravel', color: 0xb09c70 },
+  { kind: 'terrain', group: 'terrain-desert', id: 'terrain-sand', name: 'Sand', color: 0xf0d77a },
+  { kind: 'terrain', group: 'terrain-desert', id: 'red-sand', name: 'Red sand', color: 0xe0866a },
+  { kind: 'terrain', group: 'terrain-desert', id: 'cracked-earth', name: 'Cracked earth', color: 0xd9b679, specks: [0x8f7350] },
+  { kind: 'terrain', group: 'terrain-savanna', id: 'savanna-grass', name: 'Savanna grass', color: 0xbfae5a, specks: [0xd9bf6a, 0xa8863a] },
+  { kind: 'terrain', group: 'terrain-savanna', id: 'dry-grass', name: 'Dry grass', color: 0x96974e },
+  { kind: 'terrain', group: 'terrain-savanna', id: 'clay', name: 'Clay', color: 0xb8613a },
+  { kind: 'terrain', group: 'terrain-tropical', id: 'jungle-floor', name: 'Jungle floor', color: 0x2e4a24, specks: [0x5b7a2e, 0x7a5a2e] },
+  { kind: 'terrain', group: 'terrain-tropical', id: 'leaf-litter', name: 'Leaf litter', color: 0x97592a, specks: [0xc08040, 0x6a8a34, 0xa04a2a] },
+  { kind: 'terrain', group: 'terrain-wetland', id: 'marsh-grass', name: 'Marsh grass', color: 0x66804e, specks: [0x8aa066] },
+  { kind: 'terrain', group: 'terrain-wetland', id: 'mud', name: 'Mud', color: 0x66543e },
+  { kind: 'terrain', group: 'terrain-wetland', id: 'peat', name: 'Peat', color: 0x3a2f27 },
+  { kind: 'terrain', group: 'terrain-wetland', id: 'moss', name: 'Moss', color: 0x3e6c54 },
+  { kind: 'terrain', group: 'terrain-coastal', id: 'wet-sand', name: 'Wet sand', color: 0x7f7558, specks: [0xf4efe6] },
+  { kind: 'terrain', group: 'terrain-coastal', id: 'pebbles', name: 'Pebbles', color: 0x827684, specks: [0xd6d2cc, 0x5f6468] },
+  { kind: 'terrain', group: 'terrain-coastal', id: 'dune-grass', name: 'Dune grass', color: 0xe8d48f, specks: [0x8aa04a, 0x6f8a3a] },
+  { kind: 'terrain', group: 'terrain-cold', id: 'snow', name: 'Snow', color: 0xe4edff },
+  { kind: 'terrain', group: 'terrain-cold', id: 'frost', name: 'Frost', color: 0xc2d8d2, specks: [0xe6eeee] },
+  { kind: 'terrain', group: 'terrain-cold', id: 'ice', name: 'Ice', color: 0xb8e2f2, specks: [0xe8f6fb] },
+  { kind: 'terrain', group: 'terrain-alpine', id: 'alpine-meadow', name: 'Alpine meadow', color: 0x93b04c, specks: [0xffffff, 0x9a7ad8] },
+  { kind: 'terrain', group: 'terrain-alpine', id: 'scree', name: 'Scree', color: 0xc9bfa8, specks: [0x7c7366] },
+  { kind: 'terrain', group: 'terrain-alpine', id: 'bare-rock', name: 'Bare rock', color: 0x5a5552, specks: [0x5a5653, 0x8f8a85] },
 ];
 
 // Gravel and sand used to be path tiles. Saves and blueprints that still hold them get terrain instead.

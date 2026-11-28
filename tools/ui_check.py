@@ -69,7 +69,7 @@ GAME = """() => {
   }
   for (const d of document.querySelectorAll('.game-dialog')) {
     const r = rect(d);
-    for (const e of d.querySelectorAll('button, input, h2, p, .game-shape, .game-error, .game-swatches, .game-ground-label')) { const x = rect(e); if (x.width && (x.right > r.right + 0.5 || x.left < r.left - 0.5)) bad.push('dialog item sticks out: ' + (e.className || e.tagName)); }
+    for (const e of d.querySelectorAll('button, input, select, h2, p, .game-segments, .game-custom, .game-line, .game-error, .game-swatches')) { const x = rect(e); if (x.width && (x.right > r.right + 0.5 || x.left < r.left - 0.5)) bad.push('dialog item sticks out: ' + (e.className || e.tagName)); }
   }
   return bad;
 }"""
@@ -92,11 +92,18 @@ def game_sweep(b, width):
     pg.locator(".game-icon[aria-label^='Rename']").first.click(); check("rename in place"); pg.keyboard.press("Escape")
     pg.locator(".game-icon.remove").last.click(); check("delete armed")
     pg.click(".game-action:has-text('New game')"); check("new game")
+    pg.click(".game-segment:has-text('Custom')"); check("new game, custom size")
     pg.fill(".game-dialog .game-number >> nth=0", ""); check("new game, empty width")
     pg.fill(".game-dialog .game-number >> nth=0", "300"); check("new game, width too big")
-    pg.click(".game-squares .game-action:has-text('256')"); pg.fill(".game-dialog .game-number >> nth=1", "16"); check("new game, 256 by 16")
+    pg.click(".game-segment:has-text('256')"); pg.click(".game-segment:has-text('Custom')"); pg.fill(".game-dialog .game-number >> nth=1", "16"); check("new game, 256 by 16")
     pg.click(".game-swatch[aria-label='Flowery grass']"); check("new game, ground picked (flowery grass)")
-    pg.click(".game-swatch[aria-label='Sand']"); check("new game, ground picked (sand)")
+    for biome in ["Desert", "Savanna", "Tropical", "Wetland", "Coastal", "Cold", "Alpine"]:
+        pg.select_option(".game-dialog select[aria-label='Biome']", label=biome); check(f"new game, {biome}")
+        # the picked ground is one of the swatches on show, outlined, and named next to the biome
+        shown = pg.evaluate("() => { const s = document.querySelector('.game-dialog .game-swatch.selected'); return s && !s.hidden ? s.getAttribute('aria-label') : null }")
+        named = pg.inner_text(".game-dialog .game-ground-name")
+        if shown is None or shown != named: problems.append(f"picked ground not shown or not named ({shown} / {named})  [game: new game, {biome}]")
+    pg.select_option(".game-dialog select[aria-label='Biome']", label="Desert"); pg.click(".game-swatch[aria-label='Sand']"); check("new game, ground picked (sand)")
     pg.keyboard.press("Escape"); pg.keyboard.press("Escape"); check("closed again")
     # something unsaved: build one object, so the chip warns and New game asks first
     pg.click(".category:has-text('Scenery')"); pg.locator(".item").first.click(); pg.mouse.click(width // 2, 380); pg.wait_for_timeout(100)

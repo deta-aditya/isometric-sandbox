@@ -1117,54 +1117,8 @@ kbd {
   font-size: 11px;
 }
 
-.game-sizes {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.game-size-left {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.game-size-fields {
-  display: flex;
-  gap: 8px;
-}
-
 .game-number {
   width: 84px;
-}
-
-.game-squares {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.game-squares .game-action {
-  padding: 3px 8px;
-}
-
-.game-shape {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 48px;
-  margin-top: 16px;
-}
-
-.game-shape-box {
-  background: #4ade80;
-  border-radius: 2px;
-  opacity: 0.85;
 }
 
 .game-ground {
@@ -1174,16 +1128,12 @@ kbd {
   min-width: 0;
 }
 
-.game-ground-label {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .game-ground-name {
   color: #e2e8f0;
+}
+
+.game-swatch[hidden] {
+  display: none;
 }
 
 .game-swatches {
@@ -1216,13 +1166,76 @@ kbd {
   outline-color: #7dd3fc;
 }
 
-/* flowery grass: a few light dots over the green */
-.game-swatch.flowery {
-  background-image:
-    radial-gradient(circle at 22% 30%, #f4f1ea 0 2px, transparent 2.5px),
-    radial-gradient(circle at 70% 24%, #f2c94c 0 2px, transparent 2.5px),
-    radial-gradient(circle at 42% 72%, #e98fb5 0 2px, transparent 2.5px),
-    radial-gradient(circle at 82% 68%, #b69ae8 0 2px, transparent 2.5px);
+/* New game rows: a label, then the choice (#43 tidy-up) */
+.game-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.game-line-label {
+  width: 100%;
+  margin: 0 0 -2px;
+}
+
+.game-segments {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.game-segment {
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.game-segment:first-child {
+  border-left: 0;
+}
+
+.game-segment.selected {
+  background: rgba(125, 211, 252, 0.16);
+  color: #f1f5f9;
+}
+
+.game-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.game-custom[hidden] {
+  display: none;
+}
+
+.game-custom .game-number {
+  width: 64px;
+}
+
+.game-custom .game-hint {
+  margin: 0;
+}
+
+.game-times {
+  color: #94a3b8;
+}
+
+.game-select.game-biome {
+  min-width: 130px;
+}
+
+.game-ground .game-swatches {
+  margin-top: 8px;
 }
 
 .game-buttons {
