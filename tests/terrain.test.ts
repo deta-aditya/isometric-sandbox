@@ -4,7 +4,7 @@ import { CATEGORIES, FILTER_ORDER, getItem, groupsOf, isTerrain } from '../src/c
 import { sizeOf } from '../src/geometry.ts';
 import { type History, type HistoryAction, canRedo, canUndo, initialHistory, step } from '../src/history.ts';
 import { pointToView } from '../src/view.ts';
-import { type FillMode, bulldozePlan, groupGhost, pickTarget, terrainFill } from '../src/world.ts';
+import { type FillMode, bulldozePlan, pickTarget, terrainFill } from '../src/world.ts';
 
 const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
@@ -236,136 +236,76 @@ assert.equal(h.state.terrain.length, 12);
 assert.equal(h.state.tiles.length, 0);
 ok('Shift + click on a room clears its terrain when the Terrain filter is on');
 
-// ===== Select: filters and click priority =====
+// ===== Select leaves the ground layers alone (Deta's call: terrain and water are layers of their own) =====
 const patch = run(base, { type: 'stepBrush', step: -1 }, { type: 'stepBrush', step: -1 }, ...drag([30.5, 30.5], [33.5, 30.5]), ...drag([30.5, 31.5], [33.5, 31.5]), { type: 'useSelect' });
 assert.equal(patch.state.terrain.length, 8);
-// a box marks the terrain in it
+// a box over painted ground marks nothing, and a click on it is a click on empty ground
 h = run(patch, ...drag([29.5, 29.5], [34.5, 32.5]));
-assert.equal(marks(h).length, 8);
-assert.ok(marks(h).every((t) => t.kind === 'terrain'));
-assert.equal(h.past.length, patch.past.length); // marking is not an undo step
-// with the Terrain filter off a box marks none of it
-h = run(patch, { type: 'toggleSelectFilter', category: 'terrain' }, ...drag([29.5, 29.5], [34.5, 32.5]));
-assert.equal(marks(h).length, 0);
-assert.equal(h.state.bulldozeFilter.terrain, true); // the two filters are separate
-// a click with nothing else there marks that one cell; a click on bare grass marks nothing
+assert.equal(h.state.selection, null);
+assert.equal(pickTarget(patch.state, { x: 31, y: 30 }, { x: 31.5, y: 30.5 }), null);
 h = run(patch, ...click(31.5, 30.5));
-assert.equal(marks(h).length, 1);
-assert.equal(marks(h)[0]?.kind, 'terrain');
-assert.equal(run(patch, ...click(50.5, 50.5)).state.selection, null);
-// Shift + click adds and removes
-h = run(patch, ...click(31.5, 30.5), ...shift(true), ...click(32.5, 30.5));
-assert.equal(marks(h).length, 2);
-h = run(h, ...click(31.5, 30.5));
-assert.equal(marks(h).length, 1);
-h = run(h, ...shift(false));
-// and a drag that starts on terrain is a box, not a click on one cell
-h = run(patch, ...drag([30.5, 30.5], [33.5, 31.5]));
-assert.equal(marks(h).length, 8);
-// click priority: an object over the terrain wins, and a floor hides the terrain below it
-const stacked = run(patch, { type: 'select', id: 'crate' }, ...click(31.5, 30.5), { type: 'select', id: 'wood-floor' }, ...click(32.5, 30.5), { type: 'useSelect' });
-h = run(stacked, ...click(31.5, 30.5));
-assert.equal(h.state.selection?.kind, 'group');
-assert.equal(h.state.selection?.kind === 'group' && h.state.selection.pieces.objects.length, 1);
-assert.equal(h.state.selection?.kind === 'group' && h.state.selection.pieces.terrain.length, 0);
-assert.equal(pickTarget(stacked.state, { x: 32, y: 30 }, { x: 32.5, y: 30.5 }), null); // under a floor
-assert.equal(pickTarget(stacked.state, { x: 33, y: 30 }, { x: 33.5, y: 30.5 })?.kind, 'terrain');
-// with Scenery off the object is looked past, and the terrain below it can be picked
-h = run(stacked, { type: 'toggleSelectFilter', category: 'scenery' }, ...click(31.5, 30.5));
-assert.equal(marks(h)[0]?.kind, 'terrain');
-// the picker copies the terrain item
+assert.equal(h.state.selection, null);
+// a crate standing on the terrain: a box takes the crate only, and so does a click
+const stacked = run(patch, { type: 'select', id: 'crate' }, ...click(31.5, 30.5), { type: 'useSelect' });
+h = run(stacked, ...drag([29.5, 29.5], [34.5, 32.5]));
+assert.deepEqual(marks(h).map((t) => t.kind), ['object']);
+// with Scenery off the crate is looked past, and there is nothing under it to take
+assert.equal(pickTarget(run(stacked, { type: 'toggleSelectFilter', category: 'scenery' }).state, { x: 31, y: 30 }, { x: 31.5, y: 30.5 }), null);
+// the picker still copies the terrain item
 h = run(patch, { type: 'togglePicker' }, ...click(31.5, 30.5));
 assert.equal(h.state.selectedId, 'lush-grass');
 assert.equal(h.state.tool, 'build');
-ok('the Terrain filter rules box select, a click picks terrain last (not under floors), and the picker copies it');
+ok('select never marks terrain: a box or a click on painted ground takes nothing, things standing on it are taken alone, and the picker still copies it');
 
-// ===== Edit: move, copy, paste, cut =====
-// a three-tile L of clay at 10..11 x 10..11 (cells 10,10 11,10 11,11), and moss where a drop will land
-const clay = run(base, { type: 'select', id: 'clay' }, { type: 'stepBrush', step: -1 }, { type: 'stepBrush', step: -1 }, ...click(10.5, 10.5), ...click(11.5, 10.5), ...click(11.5, 11.5));
-assert.deepEqual(terrainKeys(clay), ['10,10', '11,10', '11,11']);
-const marked = run(clay, { type: 'useSelect' }, ...drag([9.5, 9.5], [11.5, 11.5]));
-assert.equal(marks(marked).length, 3);
+// moving, copying, cutting, turning and deleting the crate leave the terrain where it was painted
+{
+  const marked = run(stacked, ...drag([29.5, 29.5], [34.5, 32.5]));
+  const ground = terrainKeys(stacked);
+  const crateAt = (hh: History) => hh.state.objects.map((o) => `${o.x},${o.y}`).sort();
+  h = run(marked, ...click(31.5, 30.5));
+  assert.equal(h.state.selection?.kind === 'group' && h.state.selection.pieces.terrain.length, 0);
+  assert.deepEqual(terrainKeys(h), ground); // lifting takes nothing off the ground
+  h = run(h, ...click(40.5, 40.5));
+  assert.deepEqual(crateAt(h), ['40,40']);
+  assert.deepEqual(terrainKeys(h), ground);
+  h = run(marked, { type: 'copy' }, { type: 'paste' }, ...click(45.5, 45.5));
+  assert.deepEqual(crateAt(h), ['31,30', '45,45']);
+  assert.deepEqual(terrainKeys(h), ground);
+  h = run(marked, { type: 'cut' });
+  assert.equal(h.state.objects.length, 0);
+  assert.deepEqual(terrainKeys(h), ground);
+  h = run(marked, { type: 'rotate' });
+  assert.deepEqual(terrainKeys(h), ground);
+  h = run(marked, { type: 'deleteSelection' });
+  assert.equal(h.state.objects.length, 0);
+  assert.deepEqual(terrainKeys(h), ground);
+  // the same from a turned camera
+  ([1, 2, 3] as const).forEach((view) => {
+    const at = (x: number, y: number) => { const p = pointToView({ x, y }, view, SQ); return pt(p.x, p.y); };
+    let t = marked;
+    for (let i = 0; i < view; i++) t = step(t, { type: 'rotateView', dir: 1 });
+    t = run(t, { type: 'hover', ...at(31.5, 30.5) }, { type: 'press', ...at(31.5, 30.5) }, { type: 'release' }, { type: 'hover', ...at(40.5, 40.5) }, { type: 'press', ...at(40.5, 40.5) }, { type: 'release' });
+    assert.deepEqual(crateAt(t), ['40,40'], `view ${view}`);
+    assert.deepEqual(terrainKeys(t), ground, `view ${view}`);
+  });
+}
+ok('moving, copying, cutting, turning and deleting marks leave the terrain where it was painted, from every view');
 
-// move: click lifts the marked cells, a click elsewhere drops them
-h = run(marked, ...click(10.5, 10.5));
-assert.equal(h.state.selection?.kind, 'group');
-assert.equal(h.state.terrain.length, 0); // lifted out of the world
-h = run(h, ...click(20.5, 20.5));
-assert.deepEqual(terrainKeys(h), ['20,20', '21,20', '21,21']);
-assert.ok(h.state.terrain.every((t) => t.defId === 'clay'));
-assert.equal(h.past.length, clay.past.length + 1); // the whole move is one step
-h = step(h, { type: 'undo' });
-assert.deepEqual(terrainKeys(h), ['10,10', '11,10', '11,11']);
-ok('marked terrain lifts and drops as a group, in one undo step');
-
-// a drop replaces terrain where it lands, like a floor over a floor
-const target = run(clay, { type: 'select', id: 'moss' }, { type: 'stepBrush', step: 1 }, { type: 'stepBrush', step: 1 }, ...click(21.5, 21.5), { type: 'useSelect' }, ...drag([9.5, 9.5], [11.5, 11.5]));
-assert.equal(target.state.terrain.filter((t) => t.defId === 'moss').length, 9);
-assert.equal(marks(target).length, 3);
-h = run(target, ...click(10.5, 10.5), ...click(20.5, 20.5));
-assert.equal(terrainAt(h, 20, 20), 'clay');
-assert.equal(terrainAt(h, 21, 20), 'clay');
-assert.equal(terrainAt(h, 21, 21), 'clay');
-assert.equal(terrainAt(h, 22, 22), 'moss'); // beside the drop, untouched
-assert.equal(terrainAt(h, 20, 21), 'moss');
-assert.equal(h.state.terrain.length, 9); // 6 moss left, 3 clay: one terrain per tile
-assert.equal(new Set(terrainKeys(h)).size, h.state.terrain.length);
-ok('dropping terrain replaces the terrain where it lands');
-
-// copy and paste: copies stay in hand and each drop is its own step; the original stays
-h = run(marked, { type: 'copy' }, { type: 'paste' }, hover(30.5, 30.5), ...click(30.5, 30.5), ...click(40.5, 40.5));
-assert.equal(h.state.terrain.length, 9);
-assert.equal(terrainAt(h, 30, 30), 'clay');
-assert.equal(terrainAt(h, 41, 41), 'clay');
-assert.equal(terrainAt(h, 11, 11), 'clay');
-assert.equal(h.past.length, clay.past.length + 2);
-// cut takes it out, paste puts it back
-h = run(marked, { type: 'cut' });
-assert.equal(h.state.terrain.length, 0);
-h = run(h, { type: 'paste' }, ...click(15.5, 15.5));
-assert.equal(terrainAt(h, 15, 15), 'clay');
-assert.equal(h.state.terrain.length, 3);
-ok('copy and paste carry terrain and leave the original; cut and paste moves it');
-
-// turning a held group turns its terrain like tiles: (dx, dy) about the grabbed cell becomes (-dy, dx)
-const held = run(marked, ...click(10.5, 10.5)); // grabbed by cell 10,10
-const ghostAt = (s: History, x: number, y: number) => groupGhost({ ...s.state, hover: { x, y } });
-const relative = (s: History, turns: number) => {
-  const g = ghostAt(run(s, ...Array.from({ length: turns }, (): HistoryAction => ({ type: 'rotate' }))), 20, 20);
-  return keys(g?.terrain ?? []);
-};
-const sorted = (...ks: string[]) => ks.sort();
-assert.deepEqual(relative(held, 0), sorted('20,20', '21,20', '21,21'));
-assert.deepEqual(relative(held, 1), sorted('20,20', '20,21', '19,21')); // (1,0) -> (0,1), (1,1) -> (-1,1)
-assert.deepEqual(relative(held, 2), sorted('20,20', '19,20', '19,19'));
-assert.deepEqual(relative(held, 3), sorted('20,20', '20,19', '21,19'));
-h = run(held, { type: 'rotate' }, ...click(20.5, 20.5));
-assert.deepEqual(terrainKeys(h), sorted('19,21', '20,20', '20,21'));
-// marked terrain turns in place about the middle of the marks
-const inPlace = run(marked, { type: 'rotate' });
-assert.equal(inPlace.state.terrain.length, 3);
-assert.deepEqual(terrainKeys(inPlace), sorted('10,10', '10,11', '9,11')); // about the middle cell 10,10
-assert.equal(marks(inPlace).length, 3); // still marked
-ok('turning a held group, or marks in place, turns the terrain with it');
-
-// moving terrain from a turned camera gives the same world as from the usual one
-([1, 2, 3] as const).forEach((view) => {
-  const at = (x: number, y: number) => { const p = pointToView({ x, y }, view, SQ); return pt(p.x, p.y); };
-  let t = marked;
-  for (let i = 0; i < view; i++) t = step(t, { type: 'rotateView', dir: 1 });
-  t = run(t, { type: 'hover', ...at(10.5, 10.5) }, { type: 'press', ...at(10.5, 10.5) }, { type: 'hover', ...at(20.5, 20.5) }, { type: 'press', ...at(20.5, 20.5) });
-  assert.deepEqual(terrainKeys(t), ['20,20', '21,20', '21,21'], `view ${view}`);
-});
-ok('moving terrain works the same from every camera view');
-
-// delete removes marked terrain
-h = run(marked, { type: 'deleteSelection' });
-assert.equal(h.state.terrain.length, 0);
-assert.equal(h.past.length, clay.past.length + 1);
-ok('Delete removes marked terrain in one undo step');
+// water is a ground layer too: a box over a canal beside a floor takes the floor only
+{
+  const wet = run(base, { type: 'select', id: 'canal' }, ...drag([10.5, 10.5], [13.5, 10.5]), { type: 'select', id: 'wood-floor' }, ...drag([10.5, 12.5], [13.5, 12.5]), { type: 'useSelect' });
+  assert.equal(wet.state.tiles.length, 8);
+  h = run(wet, ...drag([9.5, 9.5], [14.5, 13.5]));
+  assert.equal(marks(h).length, 4);
+  assert.ok(marks(h).every((t) => t.kind === 'tile' && t.target.defId === 'wood-floor'));
+  h = run(h, ...click(11.5, 12.5), ...click(30.5, 30.5)); // move the floor away; the canal stays
+  assert.equal(h.state.tiles.filter((t) => t.defId === 'canal' && t.y === 10).length, 4);
+  assert.equal(h.state.tiles.filter((t) => t.defId === 'wood-floor' && t.y === 12).length, 0);
+}
+ok('select never marks Canal or Stream water (or the culverts on it): a box over water takes only the floor beside it');
 
 // a new game or load swaps the terrain with the rest of the world
-h = step(clay, { type: 'replaceWorld', world: { size: SQ, objects: [], tiles: [], terrain: [{ x: 1, y: 1, defId: 'moss' }], walls: [], culverts: [], nextId: 1, rotation: 0 } });
+h = step(patch, { type: 'replaceWorld', world: { size: SQ, objects: [], tiles: [], terrain: [{ x: 1, y: 1, defId: 'moss' }], walls: [], culverts: [], nextId: 1, rotation: 0 } });
 assert.deepEqual(terrainKeys(h), ['1,1']);
 assert.equal(h.past.length, 0);
 ok('replacing the world replaces its terrain');

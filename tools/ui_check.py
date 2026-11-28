@@ -27,11 +27,15 @@ CHIP = """(names) => {
   for (const d of details) { title.textContent = 'Select'; detail.textContent = d; if (!fits(detail) || !fits(text)) bad.push('detail: ' + d); }
   if (filters) {
     filters.hidden = false;
+    // all five toggles, as Bulldoze shows them (select hides its Terrain toggle)
+    const hiddenToggles = [...filters.children].filter((c) => c.hidden);
+    hiddenToggles.forEach((c) => (c.hidden = false));
     for (const d of bulldoze) {
       title.textContent = 'Bulldoze'; detail.textContent = d;
       if (!fits(detail) || !fits(text)) bad.push('bulldoze detail: ' + d);
       if (![...filters.children].every(inside) || !inside(filters)) bad.push('bulldoze filters stick out with: ' + d);
     }
+    hiddenToggles.forEach((c) => (c.hidden = true));
   } else bad.push('no bulldoze filter row found');
   // A terrain item selected: its name, "Brush", and the size control (widest size) under it
   if (brush) {

@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { sizeOf } from '../src/geometry.ts';
 import { type History, type HistoryAction, canUndo, initialHistory, step, worldOf, sameWorld } from '../src/history.ts';
-import { type Blueprint, emptyWorld, gameWorldOf, withoutGround } from '../src/world.ts';
+import { type Blueprint, blueprintOf, emptyWorld, gameWorldOf, withoutGround } from '../src/world.ts';
 import { pointToView } from '../src/view.ts';
 
 const SQ = sizeOf(64, 64);
@@ -117,11 +117,8 @@ ok('replaceWorld drops entries equal to the ground');
 // Saved on a grass map: a block of sand and a block of moss
 let src = brush1(game('grass')); src = run(src, { type: 'select', id: SAND }, ...drag([10.5, 10.5], [11.5, 10.5]), { type: 'select', id: 'moss' }, ...drag([12.5, 10.5], [13.5, 10.5]));
 assert.equal(src.state.terrain.length, 4);
-// mark the lot with a box and save it as a blueprint
-src = run(src, { type: 'useSelect' }, ...drag([9.5, 9.5], [14.5, 11.5]));
-assert.equal(src.state.selection?.kind, 'marked');
-src = run(src, { type: 'saveBlueprint' });
-const bp: Blueprint | undefined = src.state.blueprints[0];
+// select no longer takes terrain, so this is a blueprint saved before that change, holding the lot
+const bp: Blueprint | undefined = blueprintOf(1, 'Older blueprint', { objects: [], walls: [], tiles: [], culverts: [], terrain: src.state.terrain });
 assert.ok(bp && bp.pieces.terrain.length === 4);
 const lands = (ground: string, size = SQ): History => {
   const into: History = { ...game(ground, size), state: { ...game(ground, size).state, blueprints: [bp!] } };

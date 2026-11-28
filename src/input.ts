@@ -256,11 +256,12 @@ export const bindInput = (
       case 'Escape':
         return dispatch({ type: 'cancel' });
     }
-    // Shift + 1 to 5 switch the select filter (with Shift the key reads !, @ ..., so go by the key's position)
+    // Shift + 1 to 4 switch the select filter (with Shift the key reads !, @ ..., so go by the key's position);
+    // select never takes terrain, so it has no Terrain toggle and Shift + 5 does nothing
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (e.shiftKey && digit && getState().tool === 'select') {
       const category = FILTER_ORDER[Number(digit[1]) - 1];
-      return category ? dispatch({ type: 'toggleSelectFilter', category }) : undefined;
+      return category && category !== 'terrain' ? dispatch({ type: 'toggleSelectFilter', category }) : undefined;
     }
     const index = Number(e.key) - 1;
     if (!Number.isInteger(index) || index < 0) return;

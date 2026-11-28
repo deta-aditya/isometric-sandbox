@@ -237,7 +237,7 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
   const toolText = el('div', 'tool-text');
   const toolTitle = el('b');
   const toolDetail = el('span');
-  // Filters: one toggle per kind of thing, shown while bulldozing (keys 1 to 5) or selecting (Shift + 1 to 5).
+  // Filters: one toggle per kind of thing, shown while bulldozing (keys 1 to 5) or selecting (Shift + 1 to 4; select has no Terrain toggle).
   // Each tool keeps its own setting; the same buttons show whichever tool is in use.
   const filters = el('div', 'bulldoze-filters');
   const filterButtons = FILTER_ORDER.map((id, i) => {
@@ -580,6 +580,7 @@ export const createHud = (dispatch: (a: HistoryAction) => void, icons: Icons, pr
     filters.toggleAttribute('hidden', !selecting && state.tool !== 'bulldoze');
     filters.classList.toggle('for-select', selecting);
     filterButtons.forEach((f) => {
+      f.el.toggleAttribute('hidden', selecting && f.id === 'terrain'); // select never takes terrain
       const on = (selecting ? state.selectFilter : state.bulldozeFilter)[f.id];
       f.el.classList.toggle('active', on);
       f.el.setAttribute('aria-pressed', String(on));

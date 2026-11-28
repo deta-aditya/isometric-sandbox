@@ -862,17 +862,15 @@ export const pickTarget = (s: State, cell: Cell, point: Point | null): EraseTarg
   if (hiddenUnderRoof(s, cell)) return null;
   const object = objectAt(s, cell);
   const hit: EraseTarget | null = object ? { kind: 'object', target: object } : null;
-  if (hit && s.selectFilter[categoryOfTarget(hit)]) return hit;
-  return terrainPick(s, cell);
+  return hit && s.selectFilter[categoryOfTarget(hit)] ? hit : null;
 };
 
-// Terrain is picked last, and only bare: a floor or a road on top hides it (and floors are never clicked).
-// Standing things switched off in the filter are looked past.
-const terrainPick = (s: State, cell: Cell): EraseTarget | null => {
-  const covered = tileAt(s, cell) !== undefined || s.objects.some((o) => layerOf(o.defId) !== null && onCell(o, cell));
-  const ground = s.selectFilter.terrain && !covered ? terrainAt(s, cell) : undefined;
-  return ground ? { kind: 'terrain', target: ground } : null;
-};
+// The ground layers are not the select tool's (Deta's call: terrain is a layer of its own, and so is
+// water): terrain, Canal and Stream tiles, and the culverts, outlets and inlets that sit on water are
+// never marked, so moving, copying, cutting, deleting and saving a blueprint leave them where they are.
+// Bulldoze, the brush, fills and the picker still reach them.
+export const selectable = (t: EraseTarget): boolean =>
+  t.kind !== 'terrain' && t.kind !== 'culvert' && !(t.kind === 'tile' && isWaterTile(t.target.defId));
 
 // ===== Paint =====
 // Paint goes on one side of a wall: the side the pointer is on. Click for one segment, or drag along
@@ -1320,7 +1318,7 @@ export const boxArea = (s: State): Rect | null =>
 export const boxTargets = (s: State): EraseTarget[] => {
   const area = boxArea(s);
   const all = area ? targetsWhere(s, (c) => covers(area, c), (o) => onArea(o, area), (e) => edgeInArea(s, e, area)) : [];
-  return all.filter((t) => s.selectFilter[categoryOfTarget(t)]);
+  return all.filter((t) => selectable(t) && s.selectFilter[categoryOfTarget(t)]);
 };
 
 // Takes pieces out of the world (by identity: exactly these, not look-alikes)
@@ -1488,9 +1486,8 @@ const selectPress = (s: State, cell: Cell, point: Point): State => {
   const marks = sel?.kind === 'marked' ? sel.targets : [];
   // With things marked, a plain click anywhere lifts them all, held by the clicked cell
   if (marks.length && !s.shiftHeld) return lift(at, marks, cell, true);
-  // Terrain is the ground you start boxes on, so pressing on it starts a box too; a click that never
-  // left its cell marks the terrain there instead (see finishBox)
-  if (!hit || hit.kind === 'terrain') return { ...at, drag: { mode: 'box', start: cell, add: s.shiftHeld } };
+  // Pressing on the ground (bare, painted or water) starts a box
+  if (!hit) return { ...at, drag: { mode: 'box', start: cell, add: s.shiftHeld } };
   if (s.shiftHeld) {
     const these = marksFor(at, hit);
     const next = isMarked(at, hit) ? marks.filter((t) => !these.some((m) => sameTarget(t, m))) : unionMarks(marks, these);
@@ -1526,7 +1523,7 @@ const paste = (s: State, c: Pick<Clipboard, 'pieces' | 'anchor'> | null, name?: 
 
 // ===== Blueprints =====
 // Saving moves the marked things to the origin, so a blueprint does not remember where it came from
-const blueprintOf = (id: number, name: string, pieces: Pieces): Blueprint => {
+export const blueprintOf = (id: number, name: string, pieces: Pieces): Blueprint => {
   const box = boundsOf(pieces);
   const move = <T extends { x: number; y: number }>(t: T): T => ({ ...t, x: t.x - box.x, y: t.y - box.y });
   const at = { objects: pieces.objects.map(move), walls: pieces.walls.map(move), tiles: pieces.tiles.map(move), terrain: pieces.terrain.map(move), culverts: pieces.culverts.map(move) };
@@ -1551,14 +1548,7 @@ const finishBox = (s: State, drag: Readonly<{ start: Cell; add: boolean }>): Sta
   const marks = s.selection?.kind === 'marked' ? s.selection.targets : [];
   const boxed = boxTargets(s);
   const done: State = { ...s, drag: null };
-  if (!boxArea(s)) {
-    const ground = terrainPick(s, drag.start);
-    if (ground) {
-      const next = drag.add ? (isMarked(s, ground) ? marks.filter((t) => !sameTarget(t, ground)) : unionMarks(marks, [ground])) : [ground];
-      return { ...done, selection: marked(next) };
-    }
-    return drag.add ? done : { ...done, selection: null };
-  }
+  if (!boxArea(s)) return drag.add ? done : { ...done, selection: null };
   return { ...done, selection: marked(drag.add ? unionMarks(marks, boxed) : boxed) };
 };
 

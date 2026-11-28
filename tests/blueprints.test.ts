@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { type History, type HistoryAction, initialHistory, step } from '../src/history.ts';
 import { decodeBlueprints, encodeBlueprints } from '../src/blueprintStore.ts';
 import { pointToView } from '../src/view.ts';
-import { canSaveBlueprint, wallAt } from '../src/world.ts';
+import { blueprintOf, canSaveBlueprint, wallAt } from '../src/world.ts';
 import { sizeOf } from '../src/geometry.ts';
 const SQ = sizeOf(64, 64);
 const run = (h: History, ...a: HistoryAction[]) => a.reduce(step, h);
@@ -126,11 +126,15 @@ ok('the store reads back what it wrote, and drops what it cannot trust instead o
   const painted = run(initialHistory, { type: 'select', id: 'moss' }, { type: 'stepBrush', step: -1 }, ...click(20, 20), { type: 'select', id: 'crate' }, ...click(19.5, 19.5), { type: 'useSelect' });
   assert.equal(painted.state.terrain.length, 4);
   const marked2 = run(painted, ...drag([17.5, 17.5], [22.5, 22.5]));
-  const saved2 = run(marked2, { type: 'saveBlueprint' });
-  const tbp = saved2.state.blueprints[0]!;
-  assert.equal(tbp.pieces.terrain.length, 4);
-  assert.equal(Math.min(...tbp.pieces.terrain.map((t) => t.x)), 0); // at the origin with the rest
-  assert.equal(saved2.past.length, painted.past.length);
+  const fromMarks = run(marked2, { type: 'saveBlueprint' }).state.blueprints[0]!;
+  assert.equal(fromMarks.pieces.terrain.length, 0); // select never takes terrain, so a new blueprint holds none
+  assert.equal(fromMarks.pieces.objects.length, 1);
+  // a blueprint saved before that change still holds its terrain: the moss around the crate, at the origin with it
+  const tbp = blueprintOf(fromMarks.id, fromMarks.name, {
+    ...fromMarks.pieces,
+    terrain: [{ x: 0, y: 0, defId: 'moss' }, { x: 1, y: 0, defId: 'moss' }, { x: 0, y: 1, defId: 'moss' }, { x: 1, y: 1, defId: 'moss' }],
+  });
+  const saved2: History = { ...painted, state: { ...painted.state, blueprints: [tbp] } };
   const back = decodeBlueprints(encodeBlueprints(saved2.state.blueprints));
   assert.deepEqual(back, saved2.state.blueprints);
   // placing it elsewhere puts the terrain there, in one step, with the object
@@ -144,7 +148,7 @@ ok('the store reads back what it wrote, and drops what it cannot trust instead o
   const turned = run(saved2, { type: 'cancel' }, { type: 'rotateView', dir: 1 }, { type: 'placeBlueprint', id: tbp.id }, { type: 'hover', ...quarter(40.5, 40.5) }, { type: 'press', ...quarter(40.5, 40.5) }, { type: 'release' });
   const cells = (hh: History) => hh.state.terrain.map((t) => `${t.x},${t.y}`).sort().join(' ');
   assert.equal(cells(turned), cells(placed));
-  ok('a blueprint stores terrain with the rest, reads back whole, and places the same from any view');
+  ok('a blueprint saved from marks holds no terrain; an older one with terrain reads back whole and places it the same from any view');
 
   // terrain alone is enough for a blueprint, and what the catalog does not know is dropped
   const bare = JSON.parse(encodeBlueprints(saved2.state.blueprints));
